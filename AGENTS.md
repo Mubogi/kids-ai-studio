@@ -85,13 +85,48 @@ section structure identical; update only content. The same profile belongs in
 - **GitHub: live.** Pushed to https://github.com/Mubogi/kids-ai-studio
   (`master` = initial import, `mubogi-branding` = PR #1).
   The ecosystem portfolio PR is Mubogi/mubogi-ecosystem#1.
-- **Kaggle: not published yet.** Blocked only on credentials — no
-  `~/.kaggle/kaggle.json` in this environment. Run
-  `tools/publish_kaggle.py --username <kaggle-user> --repo-url <repo>` once
-  it exists.
+- **Kaggle: published**, at https://www.kaggle.com/code/jordangastavas/kids-ai-studio
+  (account `jordangastavas`, notebook private). But it **cannot generate
+  video yet** - see the accelerator blocker below.
 - There is **no Kaggle "connect a repo"** feature. The notebook clones the
   repo at runtime, so GitHub stays the single source of truth.
 - Never store a token in `.git/config`; pass it inline per command instead.
   Push with `https://$TOKEN@github.com/...` and it stays out of the config.
 - The default `GITHUB_TOKEN` in this environment is a *different, read-only*
   account (`jun123432`). Pushes to Mubogi need an explicit Mubogi token.
+
+### Kaggle accelerator blocker (verified, not a guess)
+
+Requesting `enable_gpu` and `enable_internet` in `kernel-metadata.json`
+**succeeds at the API level** - the stored metadata really does say
+`machine_shape: NvidiaTeslaT4` and `enable_internet: true` - but the running
+kernel gets **neither**. A probe notebook printed:
+
+    cuda available: False
+    internet error: URLError Temporary failure in name resolution
+
+GPU quota is not the cause: `kaggle quota` reports 30h remaining, 0h used.
+Kaggle gates GPU, TPU and internet behind **account verification**, and the
+CLI's own 403 help text points at it ("Your account is missing phone or
+identity verification. Verify at https://www.kaggle.com/settings").
+
+So: **verify the Kaggle account first** (phone number, plus identity
+verification for some features). Until then the notebook stops at step 1 by
+design, with an assertion that says exactly that.
+
+### Kaggle API gotchas learned the hard way
+
+- **Public notebooks cannot be created over the API.** `is_private: false`
+  returns `403 Forbidden` on `SaveKernel`. Bisected with two identical
+  minimal notebooks: private works, public 403s. Dataset writes are fine
+  either way, so this is specific to kernels, not a token scope problem.
+  `publish_kaggle.py` therefore defaults to private; add `--public` to opt
+  in, or flip visibility in the notebook's Settings on the web UI.
+- **`nvidia-smi` is not on PATH** in the Kaggle Python image. Never call it
+  unguarded; use `shutil.which` and rely on `torch.cuda.is_available()`.
+- Pushing a notebook **auto-triggers a run**. Poll with
+  `python3 -m kaggle kernels status <user>/<slug>` and read failures with
+  `python3 -m kaggle kernels output <user>/<slug> -p <dir>`.
+- The `kaggle` console script installs to `~/.local/bin`, which is not on
+  PATH here. Use `python3 -m kaggle ...` or the resolver in
+  `tools/publish_kaggle.py`.
