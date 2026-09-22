@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import threading
 import time
 from pathlib import Path
 from urllib.parse import quote
@@ -22,6 +23,45 @@ from urllib.parse import quote
 from .config import ShowConfig
 from .storyboard import Scene
 from .util import run, PipelineError
+
+
+def _run_async(coro):
+    """Run a coroutine to completion from sync code.
+
+    `asyncio.run` cannot be used inside a Jupyter notebook: the kernel already
+    has a running event loop, and asyncio refuses to nest one. That is not a
+    corner case here, since the Kaggle notebook is the primary way this
+    package is run, and it broke narration there while working on the CLI.
+
+    So when a loop is already running, run the coroutine on a fresh loop in a
+    worker thread instead. Threads are allowed to have their own loops.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No loop running: the simple path is correct.
+        return asyncio.run(coro)
+
+    result: list = []
+    error: list = []
+
+    def _worker() -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            result.append(loop.run_until_complete(coro))
+        except BaseException as e:  # noqa: BLE001 - re-raised in the caller
+            error.append(e)
+        finally:
+            loop.close()
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join()
+    if error:
+        raise error[0]
+    return result[0] if result else None
+
 
 # Pollinations moved to a keyed, pre-paid model in 2026: anonymous requests
 # now return 401/402 ("Insufficient balance"), so it is kept only as a
@@ -420,7 +460,7 @@ class EdgeNarrator:
             await edge_tts.Communicate(text, self.voice, rate=self.rate).save(str(tmp))
 
         try:
-            asyncio.run(_speak())
+            _run_async(_speak())
         except Exception as e:  # noqa: BLE001 - network / voice hiccup
             tmp.unlink(missing_ok=True)
             raise PipelineError(f"edge-tts failed: {e}") from e
