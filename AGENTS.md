@@ -82,13 +82,16 @@ section structure identical; update only content. The same profile belongs in
 
 ## Publishing (state as of 2026-09-22)
 
-- **Nothing is pushed anywhere yet.** The `GITHUB_TOKEN` in this environment
-  authenticates as `jun123432` and is *read-only* for `Mubogi` — verified by a
-  failed ref-creation API call returning "Resource not accessible by
-  integration". Do not claim a push succeeded without re-testing writes.
-- There is **no Kaggle "connect a repo"** feature. `tools/publish_kaggle.py`
-  pushes the notebook via the Kaggle API; the notebook then clones the repo at
-  runtime. GitHub stays the single source of truth.
-- Kaggle API tokens live at `~/.kaggle/kaggle.json` and are not present in this
-  environment.
+- **GitHub: live.** Pushed to https://github.com/Mubogi/kids-ai-studio
+  (`master` = initial import, `mubogi-branding` = PR #1).
+  The ecosystem portfolio PR is Mubogi/mubogi-ecosystem#1.
+- **Kaggle: not published yet.** Blocked only on credentials — no
+  `~/.kaggle/kaggle.json` in this environment. Run
+  `tools/publish_kaggle.py --username <kaggle-user> --repo-url <repo>` once
+  it exists.
+- There is **no Kaggle "connect a repo"** feature. The notebook clones the
+  repo at runtime, so GitHub stays the single source of truth.
 - Never store a token in `.git/config`; pass it inline per command instead.
+  Push with `https://$TOKEN@github.com/...` and it stays out of the config.
+- The default `GITHUB_TOKEN` in this environment is a *different, read-only*
+  account (`jun123432`). Pushes to Mubogi need an explicit Mubogi token.
