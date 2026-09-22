@@ -34,14 +34,16 @@ class WanGPBackend:
         bridge: str = "tools/wangp_bridge.py",
         python: str | None = None,
         dtype: str = "fp16",
-        offload: str = "model",
+        offload: str = "auto",
     ) -> None:
-        """Defaults suit a 16GB T4: fp16 with model-level CPU offload.
+        """Defaults suit a 16GB T4: fp16, picking the offload mode at runtime.
 
-        A T4 is sm_75 and has no bfloat16, so fp16 is the right precision
-        there. Set ``offload="none"`` on a 24GB+ card for a large speedup -
-        offloading costs a host-device copy per step. The bridge also retries
-        with progressively tighter offloading if it hits an out-of-memory.
+        A T4 is sm_75 and has no bfloat16, so fp16 is the right precision.
+        ``offload="auto"`` uses accelerate's balanced device map when the
+        machine has two or more GPUs, and falls back to single-card model
+        offload otherwise; the bridge also retries at lower resolutions if it
+        runs out of memory either way. On a 24GB+ card, ``offload="none"``
+        avoids the per-step host-device copies.
         """
         self.model = model
         self.bridge = Path(bridge)

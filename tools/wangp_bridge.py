@@ -30,6 +30,10 @@ from pathlib import Path
 # The weights are far larger than the default HF cache should be asked to
 # hold in /kaggle/working, which is capped around 20GB.
 os.environ.setdefault("HF_HOME", "/kaggle/temp/hf")
+# Recommended by the CUDA OOM message itself. The T4 run failed while only
+# 160MB short, which is the signature of allocator fragmentation rather than
+# genuinely needing more memory, and this reuses fragmented blocks.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 TI2V_REPO = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
 
@@ -77,9 +81,15 @@ def _apply_offload(pipe, mode: str) -> None:
 
     `model` moves one whole component at a time and is the normal choice,
     but on a 15.6GB T4 the 5B transformer (~10GB) and the umt5-xxl text
-    encoder (~9GB) do not fit together, and the hand-off between them can
-    still collide. `sequential` offloads every submodule individually: much
-    slower, but it survives a much tighter budget.
+    encoder (~9GB) do not fit together, and even with offload the hand-off
+    between them ran out of memory on a real run.
+
+    `balanced` is handled earlier, in from_pretrained, because it needs
+    accelerate's dispatch hooks rather than post-hoc placement.
+
+    `sequential` is supported but not recommended on Kaggle: it holds all
+    weights in host RAM (~20GB), and a session only has ~13GB, so the kernel
+    gets OOM-killed during loading.
     """
     if mode == "none":
         pipe.to("cuda")
@@ -107,11 +117,27 @@ def load_pipeline(kind: str, model: str, dtype: str, offload: str):
     cls = WanImageToVideoPipeline if kind == "i2v" else WanPipeline
     torch_dtype = _torch_dtype(dtype)
     _log(f"loading {model} as {torch_dtype} (offload={offload})")
-    # low_cpu_mem_usage avoids materialising a full fp32 copy in host RAM
-    # while loading, which Kaggle sessions can otherwise run out of.
-    pipe = cls.from_pretrained(
-        model, torch_dtype=torch_dtype, use_safetensors=True,
-        low_cpu_mem_usage=True)
+
+    kwargs = dict(torch_dtype=torch_dtype, use_safetensors=True,
+                  low_cpu_mem_usage=True)
+
+    if offload == "balanced":
+        # accelerate shards the components across the visible GPUs and
+        # inserts dispatch hooks that move activations to whichever device
+        # holds the module being run. Doing this by hand with .to() would
+        # leave prompt embeddings on the text encoder's card while the
+        # latents sat on the transformer's, which faults.
+        kwargs["device_map"] = "balanced"
+        pipe = cls.from_pretrained(model, **kwargs)
+        # tiling/slicing still apply; no offload call, accelerate owns placement.
+        for fn in ("enable_tiling", "enable_slicing"):
+            try:
+                getattr(pipe.vae, fn)()
+            except Exception:  # noqa: BLE001
+                pass
+        return pipe
+
+    pipe = cls.from_pretrained(model, **kwargs)
     _apply_offload(pipe, offload)
     return pipe
 
@@ -144,10 +170,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--guidance", default=5.0, type=float)
     p.add_argument("--seed", default=1234, type=int)
     p.add_argument("--dtype", default="fp16", choices=["fp16", "bf16", "fp32"])
-    p.add_argument("--offload", default="model",
-                   choices=["model", "sequential", "none"],
-                   help="model: one component on GPU at a time (default); "
-                        "sequential: every submodule, slowest but tightest; "
+    p.add_argument("--offload", default="auto",
+                   choices=["auto", "balanced", "model", "sequential", "none"],
+                   help="auto: balanced across GPUs if there are 2+, else "
+                        "model offload (default); balanced: device_map across "
+                        "all GPUs; model: one component on GPU at a time; "
+                        "sequential: every submodule, needs lots of host RAM; "
                         "none: whole model in VRAM, needs >24GB")
     args = p.parse_args(argv)
 
@@ -163,15 +191,26 @@ def main(argv: list[str] | None = None) -> int:
     _log(f"{width}x{height}, {frames_n} frames @ {args.fps}fps, "
          f"{args.steps} steps, guidance {args.guidance}")
 
-    # Try the requested offload mode, then fall back to progressively more
-    # aggressive ones on OOM. A 15.6GB T4 is right on the edge for this
-    # model, and which mode actually fits depends on the diffusers version,
-    # so discovering it at runtime beats hard-coding one answer.
-    ladder = [args.offload]
-    for fallback in ("sequential", "none"):
-        if fallback not in ladder and args.offload != "none":
-            ladder.append(fallback)
-    ladder = [m for m in ladder if m != "none"] or ["sequential"]
+    # Retry order on CUDA OOM. `balanced` first when several GPUs are
+    # present: it spreads components over real VRAM rather than shuffling
+    # them to and from host memory. `sequential` is excluded because it was
+    # tried on a real T4 and the kernel was OOM-killed at 65% of weight
+    # loading - it keeps every weight in host RAM (~20GB) and a Kaggle
+    # session has ~13GB.
+    n_gpus = torch.cuda.device_count()
+    modes = []
+    if args.offload == "none":
+        modes = ["none"]
+    elif args.offload in ("model", "sequential"):
+        modes = [args.offload]
+    elif n_gpus >= 2:
+        # `auto` and explicit `balanced` both want the multi-GPU path first,
+        # with single-card offload as the fallback.
+        modes = ["balanced", "model"]
+    else:
+        modes = ["model"]
+
+    _log(f"{n_gpus} GPU(s) visible; will try: {', '.join(modes)}")
 
     kind = "i2v" if args.image else "t2v"
     image = None
@@ -180,17 +219,29 @@ def main(argv: list[str] | None = None) -> int:
 
         image = Image.open(args.image).convert("RGB")
 
-    kwargs = dict(width=width, height=height, num_frames=frames_n,
-                  num_inference_steps=args.steps,
-                  guidance_scale=args.guidance,
-                  generator=torch.Generator(device="cpu").manual_seed(args.seed))
-    if args.negative:
-        kwargs["negative_prompt"] = args.negative
-
     started = time.time()
     result = None
     pipe = None
-    for i, mode in enumerate(ladder):
+    # One attempt per mode, then shrinking resolutions for the last mode.
+    attempts: list[tuple[str, float]] = [(m, 1.0) for m in modes]
+    attempts += [(modes[-1], 0.5), (modes[-1], 0.25)]
+
+    for attempt, (mode, scale) in enumerate(attempts):
+        # Shrink on the later attempts. Peak VRAM tracks the latent volume,
+        # so cutting the frame count helps far more than trimming width.
+        cur_frames = max(_num_frames(args.seconds * scale, args.fps), 5)
+        cur_w = _dims(max(int(width * scale), 256), max(int(height * scale), 256))
+        if attempt:
+            _log(f"attempt {attempt}: offload={mode}, "
+                 f"{cur_w[0]}x{cur_w[1]}, {cur_frames} frames")
+
+        kwargs = dict(width=cur_w[0], height=cur_w[1], num_frames=cur_frames,
+                      num_inference_steps=args.steps,
+                      guidance_scale=args.guidance,
+                      generator=torch.Generator(device="cpu").manual_seed(args.seed))
+        if args.negative:
+            kwargs["negative_prompt"] = args.negative
+
         try:
             pipe = load_pipeline(kind, args.model, args.dtype, mode)
             _log("generating (this is the slow part)")
@@ -200,16 +251,13 @@ def main(argv: list[str] | None = None) -> int:
                 result = pipe(prompt=args.prompt, **kwargs)
             break
         except torch.OutOfMemoryError:
-            if i + 1 == len(ladder):
-                _log(f"ERROR: out of memory even with offload={mode}. "
-                     "Try --seconds 2 or --height 384.")
-                return 3
-            _log(f"out of memory with offload={mode}; retrying with "
-                 f"offload={ladder[i + 1]}")
-            # Drop the failed pipeline before rebuilding, or its weights are
-            # still resident and the retry fails for the same reason.
             result, pipe = None, None
             torch.cuda.empty_cache()
+            if attempt + 1 == len(attempts):
+                _log("ERROR: out of memory at every setting tried. "
+                     "Try --height 384 --seconds 1.")
+                return 3
+            _log("out of memory; trying the next configuration")
 
     frames = result.frames[0]
 

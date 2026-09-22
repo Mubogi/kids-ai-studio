@@ -286,7 +286,7 @@ from kidvid.wangp_backend import DEFAULT_WAN_MODEL, WanGPBackend
 #
 # On a 24GB+ card (A100, L4, 4090) pass offload="none" for a large speedup,
 # and dtype="bf16" if the card supports it.
-backend = WanGPBackend(model=DEFAULT_WAN_MODEL, dtype="fp16", offload="model")
+backend = WanGPBackend(model=DEFAULT_WAN_MODEL, dtype="fp16", offload="auto")
 
 clips_dir = Path(cfg.out_dir) / "clips"
 clips_dir.mkdir(parents=True, exist_ok=True)
