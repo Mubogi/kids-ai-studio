@@ -32,6 +32,27 @@ Regenerate the notebook from `tools/build_notebook.py` — never hand-edit the
   at runtime rather than hard-coding flags. WanGP's flags change between
   releases; do not replace this with hard-coded CLI args.
 
+## Touched files
+
+| Want | Change |
+| --- | --- |
+| Rebrand / recolour | `kidvid/theme.py` only — everything reads from that palette |
+| Rewrite the stories | Replace `build_storyboard` in `kidvid/storyboard.py` |
+| A nicer voice | Replace `EspeakNarrator` in `kidvid/tts.py` (Kokoro, Piper) |
+
+## Branding
+
+This is a **Jordan Design Hub (JD Hub)** project, part of the Mubogi Gastavas
+Jordan Tech Ecosystem. The palette is JD Hub yellow (`#FFC107`) in
+`kidvid/theme.py`. Scene cards, the title card, song captions and the generated
+preview page all read from that one `Theme` dataclass — never hard-code a colour
+in `movie.py` or `video.py`.
+
+`PROJECT_PROFILE.md` follows the ecosystem template
+(https://github.com/Mubogi/mubogi-ecosystem `PROJECT_TEMPLATE.md`). Keep the
+section structure identical; update only content. The same profile belongs in
+`profiles/<project>.md` in the ecosystem repo.
+
 ## GPU / environment facts (verified 2026-09)
 
 - A free Kaggle T4 has ~15 GB VRAM. It runs Wan 2.2 **TI2V-5B** and **LTX**.
@@ -54,5 +75,20 @@ Regenerate the notebook from `tools/build_notebook.py` — never hand-edit the
 
 - ffmpeg's concat demuxer needs identical streams, so `movie._uniformize()`
   re-encodes every clip before joining. Don't remove it.
+- `ffmpeg_color()` is required for drawtext colours: ffmpeg wants `0xRRGGBB`
+  (and `@alpha`), not `#RRGGBB`. Passing a raw CSS hex silently renders wrong.
 - Parent directories must exist before `file_editor` create; `mkdir -p` first.
 - The shell here rejects multiple top-level commands; chain with `&&`.
+
+## Publishing (state as of 2026-09-22)
+
+- **Nothing is pushed anywhere yet.** The `GITHUB_TOKEN` in this environment
+  authenticates as `jun123432` and is *read-only* for `Mubogi` — verified by a
+  failed ref-creation API call returning "Resource not accessible by
+  integration". Do not claim a push succeeded without re-testing writes.
+- There is **no Kaggle "connect a repo"** feature. `tools/publish_kaggle.py`
+  pushes the notebook via the Kaggle API; the notebook then clones the repo at
+  runtime. GitHub stays the single source of truth.
+- Kaggle API tokens live at `~/.kaggle/kaggle.json` and are not present in this
+  environment.
+- Never store a token in `.git/config`; pass it inline per command instead.
