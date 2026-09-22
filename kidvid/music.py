@@ -96,14 +96,30 @@ class ACEStepBackend:
         # downstream muxing fails on a format it cannot parse.
         raw = out_path.with_suffix(".ace.wav")
         pipe = self._load()
-        pipe(
-            prompt=prompt,
-            lyrics="",
-            audio_duration=float(min(seconds, 240)),
-            infer_step=self.steps,
-            format="wav",
-            save_path=str(raw),
-        )
+
+        # Kaggle's T4 with the torch cu128 build: cuDNN's v8 graph API finds no
+        # executable engine for the DC-AE decoder's conv2d and raises
+        #     RuntimeError: GET was unable to find an engine to execute this
+        #     computation
+        # and it does so after diffusion has already finished, throwing away
+        # the whole generation. Disabling cuDNN makes PyTorch use its native
+        # conv kernels instead, which handle this shape. Scoped to this call
+        # so the video path keeps cuDNN, where it is both faster and fine.
+        import torch
+
+        prev_cudnn = torch.backends.cudnn.enabled
+        torch.backends.cudnn.enabled = False
+        try:
+            pipe(
+                prompt=prompt,
+                lyrics="",
+                audio_duration=float(min(seconds, 240)),
+                infer_step=self.steps,
+                format="wav",
+                save_path=str(raw),
+            )
+        finally:
+            torch.backends.cudnn.enabled = prev_cudnn
         if not raw.exists():
             raise PipelineError(f"ACE-Step reported success but {raw} is missing")
 
