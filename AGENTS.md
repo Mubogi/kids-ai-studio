@@ -130,3 +130,33 @@ design, with an assertion that says exactly that.
 - The `kaggle` console script installs to `~/.local/bin`, which is not on
   PATH here. Use `python3 -m kaggle ...` or the resolver in
   `tools/publish_kaggle.py`.
+
+## GitHub push is blocked (expired token)
+
+The `GITHUB_TOKEN` in this environment returns **401 Bad credentials** from
+the GitHub API (`/user`), so pushes to `github.com/Mubogi/kids-ai-studio`
+cannot be authenticated. The commit is ready on branch `mubogi-branding`;
+it needs a fresh token (repo scope) to push. Nothing else about the build
+depends on this.
+
+## Caption rendering: three ffmpeg/libass traps
+
+All three were found by testing, and each one fails *silently* - captions
+just do not appear, with no error from ffmpeg.
+
+1. **SRT is laid out on a fixed 288-unit-tall canvas**, not on the real
+   frame size. Style values must be scaled by `288 / frame_height`, or a
+   1080p caption ends up 6.7x too large and off-screen.
+2. **`BorderStyle=3` with `Outline=0` renders nothing at all.** The box
+   style needs `Outline>=1` (1 is the minimum padding).
+3. **ASS centiseconds must be two digits** (`0:00:04.90`, not
+   `0:00:04.9`). Single digits make libass drop the whole file. Note the
+   dedicated `ass` filter cannot parse ASS in this ffmpeg build either,
+   so `kidvid/social.py` burns an SRT via `force_style` instead.
+
+## The studio interface
+
+`python3 -m kidvid.serve` starts the FastAPI app on port 12000 (exposed at
+the work-1 preview URL). One background worker processes jobs one at a
+time; the pipeline stdout is captured and parsed into progress events.
+Front end is a single static file, `kidvid/web/index.html`.
