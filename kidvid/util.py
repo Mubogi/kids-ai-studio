@@ -57,6 +57,21 @@ def probe_duration(path: Path) -> float:
         raise PipelineError(f"could not read duration of {path}") from exc
 
 
+def probe_size(path: Path) -> tuple[int, int]:
+    """Pixel dimensions of the first video stream, or (0, 0) if unknown."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "csv=p=0",
+             str(path)],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        w, h = out.split(",")[:2]
+        return int(w), int(h)
+    except Exception:  # noqa: BLE001 - callers guard against 0
+        return 0, 0
+
+
 def hex_hue(hex_color: str, shift: int = 0) -> str:
     """Lighten a hex colour by a 0-100 amount. Used to vary scene colours."""
     rgb = [int(hex_color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]

@@ -134,10 +134,22 @@
       <div>
         <label for="vb">Artwork</label>
         <select id="vb">
-          <option value="ai">Real AI images (free, no key)</option>
+          <option value="ai">Real AI images (Stable Horde, free)</option>
           <option value="mock">Offline gradients (instant test)</option>
         </select>
       </div>
+      <div>
+        <label for="style">Look</label>
+        <select id="style">
+          <option value="cartoon">Cartoon (kids)</option>
+          <option value="cinematic">Cinematic / photoreal people</option>
+          <option value="3d">3D animated film</option>
+          <option value="anime">Anime</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
       <div>
         <label for="mb">Music</label>
         <select id="mb">
@@ -247,6 +259,7 @@ $("go").addEventListener("click", async () => {
   fd.append("mode", $("mode").value);
   fd.append("video_backend", $("vb").value);
   fd.append("music_backend", $("mb").value);
+  fd.append("art_style", $("style").value);
   fd.append("scenes", $("scenes").value);
   fd.append("seconds_per_scene", $("secs").value);
   fd.append("seed", $("seed").value);

@@ -12,18 +12,72 @@ import re
 
 from .config import ShowConfig
 
-# Appended to every scene prompt so the models stay in a kid-safe register.
-SAFE_STYLE = (
-    "colorful 2D animated cartoon for young children, cute friendly characters, "
-    "bright soft pastel colors, gentle warm lighting, rounded simple shapes, "
-    "storybook illustration style, no text, no words, no letters, wholesome and cheerful"
-)
+# Style presets. The default is the kid-safe cartoon, but the same models can
+# produce photoreal footage - that needs a different prompt AND a different
+# negative prompt, because the cartoon negatives actively forbid realistic
+# faces. Pick with ShowConfig.art_style.
+STYLE_PRESETS: dict[str, str] = {
+    "cartoon": (
+        "colorful 2D animated cartoon for young children, cute friendly characters, "
+        "bright soft pastel colors, gentle warm lighting, rounded simple shapes, "
+        "storybook illustration style, no text, no words, no letters, wholesome and cheerful"
+    ),
+    "cinematic": (
+        "cinematic film still, photorealistic, natural soft lighting, shallow depth of "
+        "field, 35mm lens, highly detailed, realistic skin texture, lifelike human "
+        "characters with natural proportions, professional color grading, no text, "
+        "no watermark, no logo"
+    ),
+    "3d": (
+        "modern 3D animated film render, Pixar-style, soft global illumination, "
+        "detailed textures and materials, expressive appealing characters, "
+        "cinematic lighting, no text, no watermark"
+    ),
+    "anime": (
+        "high quality anime key visual, clean line art, vibrant cel shading, "
+        "expressive characters, detailed background art, no text, no watermark"
+    ),
+}
 
-NEGATIVE_PROMPT = (
-    "scary, frightening, violent, blood, gore, weapons, dark horror lighting, "
-    "sad crying close-up, realistic human faces, extra limbs, deformed hands, "
-    "text, watermark, logo, signature, low quality, blurry, jittery"
-)
+# Negatives are per-style: the cartoon list bans "realistic human faces",
+# which would fight the cinematic preset.
+NEGATIVE_PRESETS: dict[str, str] = {
+    "cartoon": (
+        "scary, frightening, violent, blood, gore, weapons, dark horror lighting, "
+        "sad crying close-up, realistic human faces, extra limbs, deformed hands, "
+        "text, watermark, logo, signature, low quality, blurry, jittery"
+    ),
+    "cinematic": (
+        "scary, violent, blood, gore, weapons, horror, extra limbs, deformed hands, "
+        "extra fingers, distorted face, warped anatomy, text, watermark, logo, "
+        "signature, blurry, low quality, oversaturated, cartoon"
+    ),
+    "3d": (
+        "scary, frightening, violent, blood, gore, weapons, horror, extra limbs, "
+        "deformed hands, text, watermark, logo, blurry, low quality"
+    ),
+    "anime": (
+        "scary, violent, blood, gore, weapons, horror, extra limbs, deformed hands, "
+        "text, watermark, logo, blurry, low quality, photorealistic"
+    ),
+}
+
+DEFAULT_STYLE = "cartoon"
+
+# Backwards-compatible aliases: other modules and older configs import these.
+SAFE_STYLE = STYLE_PRESETS[DEFAULT_STYLE]
+NEGATIVE_PROMPT = NEGATIVE_PRESETS[DEFAULT_STYLE]
+
+
+def style_for(name: str | None) -> str:
+    """Prompt suffix for a style name, falling back to the default."""
+    return STYLE_PRESETS.get(name or DEFAULT_STYLE, STYLE_PRESETS[DEFAULT_STYLE])
+
+
+def negative_for(name: str | None) -> str:
+    """Negative prompt matching a style, so the two never disagree."""
+    return NEGATIVE_PRESETS.get(name or DEFAULT_STYLE, NEGATIVE_PRESETS[DEFAULT_STYLE])
+
 
 # Beat names describe the shape of a classic picture-book arc.
 _BEATS = ("setup", "journey", "problem", "resolution")
@@ -175,7 +229,8 @@ def _narration(character: str, beat: str, theme: str) -> str:
     }[beat]
 
 
-def _scene_prompt(character: str, beat: str, theme: str, camera: str) -> str:
+def _scene_prompt(character: str, beat: str, theme: str, camera: str,
+                  style: str = DEFAULT_STYLE) -> str:
     """A concrete shot description handed to the video model."""
     idea = _action(theme)
     shots = {
@@ -188,7 +243,7 @@ def _scene_prompt(character: str, beat: str, theme: str, camera: str) -> str:
         "resolution": f"Warm closing shot: {character} smiling with new friends, "
                       f"confetti and sparkles, golden sunset, everyone celebrating together",
     }
-    return f"{shots[beat]}. {camera}. {SAFE_STYLE}"
+    return f"{shots[beat]}. {camera}. {style_for(style)}"
 
 
 def _camera_for(beat: str) -> str:
@@ -291,7 +346,8 @@ def build_storyboard(cfg: ShowConfig) -> Storyboard:
                 index=i,
                 beat=beat,
                 narration=_narration(character, beat, theme),
-                video_prompt=_scene_prompt(character, beat, theme, _camera_for(beat)),
+                video_prompt=_scene_prompt(character, beat, theme, _camera_for(beat),
+                                           cfg.art_style),
                 seconds=cfg.seconds_per_scene,
                 image=images[i] if i < len(images) else None,
             )

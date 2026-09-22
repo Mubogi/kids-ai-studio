@@ -206,3 +206,51 @@ A 5-second 480p clip at 30 steps is roughly 2-6 minutes. A 4-scene
 20-second story is roughly 10-25 minutes. The first scene is slowest
 because the model loads then. `STEPS=6` plus a Lightning checkpoint is the
 main speed lever.
+
+## Pollinations went paid - Stable Horde is the new free image source
+
+Discovered while testing the new style presets. Anonymous Pollinations
+requests now fail hard:
+
+    {"error":"Internal Server Error","message":"Gen Sana request failed with
+     402: ... Insufficient balance. This request costs ~0.0001 pollen, but
+     your available balance is 0.0000."}
+
+and the queue endpoint returns 429 with `maxAllowed: 1` per IP. The free
+keyless image tier that `ImageVideoBackend` was built on is gone, so the
+whole `--video-backend ai` path was silently dead until now.
+
+`HordeImageBackend` replaces it, verified end to end:
+
+  * POST /api/v2/generate/async with apikey `0000000000` (the documented
+    anonymous key - no signup)
+  * poll /generate/check, then read /generate/status
+  * typical anonymous wait ~75s for a 1024x576 still
+
+Two traps worth remembering:
+
+1. The signed URL in `generations[0].img` must be used **in full**. It
+   carries an X-Amz-Signature query string; truncating it (or logging only
+   a prefix, which is how I first hit this) yields
+   `400 InvalidArgument Authorization` from Cloudflare R2.
+2. `is_possible: false` in the check response means no worker can ever
+   serve the request. Fail fast instead of waiting out the timeout.
+
+Set `HORDE_API_KEY` to a free personal key to skip most of the queue.
+Set `POLLINATIONS_TOKEN` to use Pollinations instead.
+
+## Art styles
+
+"Real moving people" was impossible before for a reason that had nothing to
+do with GPUs: `SAFE_STYLE` hard-coded "colorful 2D animated cartoon" into
+every prompt, and `NEGATIVE_PROMPT` actively banned "realistic human faces".
+The model was told to avoid exactly what was wanted.
+
+`storyboard.STYLE_PRESETS` now offers cartoon / cinematic / 3d / anime, and
+each has a matching negative in `NEGATIVE_PRESETS` so the two cannot
+disagree. Selectable in the UI as "Look". Default output is now 1024x576
+(was 832x480) - the largest frame the services render.
+
+Note the honest limitation that remains: these are AI *images* with a
+camera move, not diffusion video. Real frame-by-frame motion still needs the
+WanGP path and a GPU. See the GPU section above.

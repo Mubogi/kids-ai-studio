@@ -14,9 +14,22 @@ from . import movie
 
 def _pick_video_backend(cfg: ShowConfig, backend: str | None):
     if backend == "ai":
-        from .ai_backends import ImageVideoBackend
+        # Horde is keyless and still free. Fall back to the Pollinations
+        # client only if a token was supplied, since its anonymous tier now
+        # returns 402.
+        import os
 
-        return ImageVideoBackend()
+        from .ai_backends import HordeImageBackend, ImageVideoBackend
+
+        token = os.environ.get("POLLINATIONS_TOKEN")
+        if token:
+            return ImageVideoBackend(api_key=token)
+
+        horde = HordeImageBackend(api_key=os.environ.get("HORDE_API_KEY",
+                                                          "0000000000"))
+        if horde.available():
+            return horde
+        return ImageVideoBackend(api_key=token)
     if backend == "mock" or backend is None and not _gpu_available():
         from .video import MockVideoBackend
 

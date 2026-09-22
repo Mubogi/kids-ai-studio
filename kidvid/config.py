@@ -13,13 +13,20 @@ class ShowConfig:
     title: str = "My Story"
     age_range: str = "3-6"
 
+    # Look of the video. One of storyboard.STYLE_PRESETS:
+    # cartoon (default), cinematic, 3d, anime.
+    art_style: str = "cartoon"
+
     # structure
     scene_count: int = 4
     seconds_per_scene: float = 5.0
 
     # video
-    width: int = 832
-    height: int = 480
+    # 1024x576 is the largest frame the free image service will actually
+    # render, so it is the default: anything larger gets downscaled to this
+    # cap anyway, and asking for less just wastes the budget.
+    width: int = 1024
+    height: int = 576
     fps: int = 24
     steps: int = 30
     guidance: float = 5.0

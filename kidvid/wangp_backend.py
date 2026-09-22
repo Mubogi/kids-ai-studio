@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 from .config import ShowConfig
-from .storyboard import NEGATIVE_PROMPT, Scene
+from .storyboard import Scene, negative_for
 from .util import run, PipelineError
 
 
@@ -52,7 +52,7 @@ class WanGPBackend:
             self.python, str(self.bridge),
             "--model", self.model,
             "--prompt", scene.video_prompt,
-            "--negative", NEGATIVE_PROMPT,
+            "--negative", negative_for(cfg.art_style),
             "--out", str(out_path),
             "--width", str(cfg.width),
             "--height", str(cfg.height),

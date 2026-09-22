@@ -120,6 +120,7 @@ def _run_job(job_id: str) -> None:
         scene_count=req["scenes"],
         seconds_per_scene=req["seconds_per_scene"],
         image_paths=req.get("images", []),
+        art_style=req.get("art_style", "cartoon"),
         make_music=req.get("music", True),
         narrate=req.get("narrate", True),
         out_dir=str(out_dir),
@@ -207,6 +208,7 @@ async def create_job(
     mode: str = Form("story"),              # story | song
     video_backend: str = Form("ai"),        # ai | mock
     music_backend: str = Form("ai"),        # ai | mock
+    art_style: str = Form("cartoon"),       # cartoon | cinematic | 3d | anime
     scenes: int = Form(3),
     seconds_per_scene: float = Form(4.0),
     music: bool = Form(True),
@@ -246,6 +248,7 @@ async def create_job(
             "mode": mode,
             "video_backend": video_backend,
             "music_backend": music_backend,
+            "art_style": art_style,
             "scenes": max(1, min(scenes, 8)),
             "seconds_per_scene": max(2.0, min(seconds_per_scene, 15.0)),
             "music": music,
