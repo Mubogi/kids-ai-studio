@@ -341,7 +341,7 @@ melody so you get a finished video to look at.
 """
     ),
     code(
-        r"""# ACE-Step for music. Two things to get right:
+        r"""# ACE-Step for music. Three things to get right:
 #
 # 1. Install from GitHub, not PyPI. The PyPI sdist declares
 #    packages=["acestep"] and omits the schedulers, models, music_dcae and
@@ -354,20 +354,35 @@ melody so you get a finished video to look at.
 #    Wan transformer dies with
 #        TypeError: set_module_tensor_to_device() got an unexpected keyword
 #        argument 'non_blocking'
-#    Install only what ACE-Step actually imports instead.
+# 3. Pin the helpers whose APIs ACE-Step depends on. Newest is not safe:
+#    py3langid 0.4.0 dropped LanguageIdentifier.from_pickled_model, which
+#    acestep.language_segmentation.LangSegment calls on construction, so an
+#    unpinned install dies with
+#        AttributeError: type object 'LanguageIdentifier' has no attribute
+#        'from_pickled_model'
+#    These pins come from ACE-Step's own requirements.
 !pip install -q --no-deps "git+https://github.com/ace-step/ACE-Step.git" 2>&1 | tail -3
-!pip install -q loguru pypinyin hangul-romanize num2words spacy py3langid cutlet "fugashi[unidic-lite]" click soundfile librosa torchaudio torchvision 2>&1 | tail -3
+!pip install -q "py3langid==0.3.0" "loguru==0.7.3" "pypinyin==0.53.0" \
+    "hangul-romanize==0.1.0" "num2words==0.5.14" "soundfile==0.13.1" \
+    "librosa==0.11.0" spacy cutlet "fugashi[unidic-lite]" click \
+    torchaudio torchvision 2>&1 | tail -3
 
 import accelerate, diffusers, transformers
 print("accelerate:", accelerate.__version__, "diffusers:", diffusers.__version__,
       "transformers:", transformers.__version__)
-# Guard the failure above rather than discovering it an hour into a GPU run.
+# Guard these rather than discovering them an hour into a GPU run.
 _major, _minor = (int(x) for x in accelerate.__version__.split(".")[:2])
 assert (_major, _minor) >= (1, 9), (
     f"accelerate {accelerate.__version__} is too old for diffusers "
     f"{diffusers.__version__}; video generation will fail. Reinstall "
     "accelerate>=1.9 and re-run."
 )
+import py3langid.langid as _pl
+assert hasattr(_pl.LanguageIdentifier, "from_pickled_model"), (
+    f"py3langid {getattr(__import__('py3langid'), '__version__', '?')} dropped "
+    "from_pickled_model, which ACE-Step needs. Install py3langid==0.3.0."
+)
+print("music dependency versions OK")
 """
     ),
     code(
