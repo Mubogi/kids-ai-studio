@@ -155,6 +155,8 @@ def main() -> int:
     p.add_argument("--title", default="Kids AI Studio")
     p.add_argument("--dry-run", action="store_true",
                    help="build the upload folder but skip the actual push")
+    p.add_argument("--public", action="store_true",
+                   help="publish the notebook publicly (see note below)")
     args = p.parse_args()
 
     method, user_hint = detect_credentials()
@@ -167,13 +169,16 @@ def main() -> int:
     work.mkdir(parents=True, exist_ok=True)
     inject_repo_url(work / "notebook.ipynb", args.repo_url)
 
+    # Kaggle returns 403 on saving a PUBLIC notebook over the API, so default
+    # to private. Flip the visibility in the notebook's Settings menu on the
+    # web UI if you want it public.
     (work / "kernel-metadata.json").write_text(json.dumps({
         "id": f"{username}/{args.slug}",
         "title": args.title,
         "code_file": "notebook.ipynb",
         "language": "python",
         "kernel_type": "notebook",
-        "is_private": False,
+        "is_private": not args.public,
         # Free GPU. Kaggle bills this against the user's weekly GPU quota.
         "enable_gpu": True,
         "enable_internet": True,

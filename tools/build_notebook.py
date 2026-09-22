@@ -318,9 +318,21 @@ target = WORK / "my_kids_video.mp4"
 shutil.copyfile(finished, target)
 
 # Branded standalone preview page (video + storyboard + lyrics, JD Hub yellow).
-!python {repo_dir}/tools/build_preview.py "{target}" "{cfg.out_dir}/storyboard.json"
+# Only present once the branding branch is merged, so don't fail the run on it.
+import os, subprocess
+preview_script = Path(repo_dir) / "tools" / "build_preview.py"
+if preview_script.exists():
+    subprocess.run(["python", str(preview_script), str(target),
+                    str(Path(cfg.out_dir) / "storyboard.json")], check=False)
+else:
+    print("preview page skipped: tools/build_preview.py not in this revision")
+    print("  merge the branding PR, or pull the branch, then re-run this cell")
+    if board.song:
+        print("  (lyrics for reference)")
+        for line in board.song:
+            print("   ", line)
 
-print("download from the Output panel:")
+print("\ndownload from the Output panel:")
 for f in sorted(Path(WORK).glob("*.mp4")) + sorted(Path(WORK).glob("*.html")):
     print("  -", f.name, f"({f.stat().st_size / 1e6:.1f} MB)")
 """
