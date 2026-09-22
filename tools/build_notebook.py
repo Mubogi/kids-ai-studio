@@ -341,16 +341,33 @@ melody so you get a finished video to look at.
 """
     ),
     code(
-        r"""# ACE-Step for music. Install from GitHub, not PyPI: the PyPI sdist ships
-# only the top-level `acestep` package and omits the subpackages its own
-# pipeline imports, so `import acestep` fails after a successful install.
+        r"""# ACE-Step for music. Two things to get right:
 #
-# Skip --no-deps: it needs the subpackages plus its own deps. Its
-# diffusers>=0.33.0 floor is compatible with the Wan requirement above; if
-# pip ever tries to pull an older diffusers here, stop - that would break
-# text-to-video. The `2>&1 | tail` keeps a failure visible instead of silent.
-!pip install -q "git+https://github.com/ace-step/ACE-Step.git" 2>&1 | tail -3 || echo "ACE-Step unavailable, will fall back to the mock melody"
-print("music deps done")
+# 1. Install from GitHub, not PyPI. The PyPI sdist declares
+#    packages=["acestep"] and omits the schedulers, models, music_dcae and
+#    language_segmentation subpackages its own pipeline imports, so it cannot
+#    import after a successful install.
+# 2. Install with --no-deps. ACE-Step pins accelerate==1.6.0, transformers
+#    ==4.50.0 and (on PyPI) diffusers==0.32.2. Those downgrades break the
+#    video stack: diffusers 0.37 calls set_module_tensor_to_device(...,
+#    non_blocking=...), which accelerate only gained in 1.9, so loading the
+#    Wan transformer dies with
+#        TypeError: set_module_tensor_to_device() got an unexpected keyword
+#        argument 'non_blocking'
+#    Install only what ACE-Step actually imports instead.
+!pip install -q --no-deps "git+https://github.com/ace-step/ACE-Step.git" 2>&1 | tail -3
+!pip install -q loguru pypinyin hangul-romanize num2words spacy py3langid cutlet "fugashi[unidic-lite]" click soundfile librosa torchaudio torchvision 2>&1 | tail -3
+
+import accelerate, diffusers, transformers
+print("accelerate:", accelerate.__version__, "diffusers:", diffusers.__version__,
+      "transformers:", transformers.__version__)
+# Guard the failure above rather than discovering it an hour into a GPU run.
+_major, _minor = (int(x) for x in accelerate.__version__.split(".")[:2])
+assert (_major, _minor) >= (1, 9), (
+    f"accelerate {accelerate.__version__} is too old for diffusers "
+    f"{diffusers.__version__}; video generation will fail. Reinstall "
+    "accelerate>=1.9 and re-run."
+)
 """
     ),
     code(
