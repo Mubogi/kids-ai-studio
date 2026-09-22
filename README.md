@@ -1,4 +1,6 @@
-# kidvid
+# kidvid — Kids AI Studio
+
+> A [Jordan Design Hub (JD Hub)](PROJECT_PROFILE.md) project — Mubogi Gastavas Jordan Tech Ecosystem.
 
 Turn one sentence into a finished animated kids' story video — or a song —
 using open-source models on a **free Kaggle GPU**.
@@ -8,6 +10,10 @@ using open-source models on a **free Kaggle GPU**.
 "a song about a friendly dragon"             ->  sung lyrics + captions       -> MP4
 "my dog goes to space" + your own pictures   ->  image-to-video animation     -> MP4
 ```
+
+Everything is branded in **JD Hub yellow** (`#FFC107`): scene cards, title card,
+song captions, and the preview page. One palette lives in `kidvid/theme.py` —
+change it there and the whole look follows.
 
 ## What you actually need
 
@@ -39,6 +45,20 @@ real narration. Only the *pictures* are placeholder gradients.
 [`notebooks/kidvid_kaggle.ipynb`](notebooks/kidvid_kaggle.ipynb) in Kaggle,
 set `Settings → Accelerator → GPU T4 x2`, `Internet → On`, put your repo URL in
 the `REPO_URL` cell, and run the cells top to bottom.
+
+Or publish it with the API in one command:
+
+```bash
+# needs ~/.kaggle/kaggle.json from kaggle.com -> Settings -> API -> Create New Token
+python3 tools/publish_kaggle.py \
+    --username YOUR_KAGGLE_USER \
+    --repo-url https://github.com/YOUR_USER/REPO
+```
+
+Kaggle has no "connect a repo" button, so this pushes the notebook into your
+Kaggle account with the GPU and internet flags pre-set. The notebook then clones
+this repo itself for the library code, which keeps the two in sync — edit the
+library, push to GitHub, and the next Kaggle run picks it up.
 
 ## Which models, and why
 

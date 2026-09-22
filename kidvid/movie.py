@@ -101,20 +101,31 @@ def mux(video: Path, audio: Path | None, out_path: Path, cfg) -> Path:
 
 
 def burn_title(video: Path, title: str, out_path: Path, cfg) -> Path:
-    """Overlay a title card for the first 2 seconds (requires Pillow for fonts)."""
-    from .util import have
+    """Overlay a JD Hub branded title card for the first 3 seconds."""
+    from .theme import DEFAULT_THEME, ffmpeg_color, attribution
 
+    theme = DEFAULT_THEME
     out_path = Path(out_path)
     safe = title.replace(":", "\\:").replace("'", "\u2019")
+    brand = attribution().replace(":", "\\:").replace("'", "\u2019")
+
     font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    fontarg = f":fontfile={font}" if have("ffmpeg") and Path(font).exists() else ""
+    fontarg = f":fontfile={font}" if Path(font).exists() else ""
+
+    title_size = max(20, cfg.height // 12)
+    brand_size = max(11, cfg.height // 30)
 
     run([
         "ffmpeg", "-y", "-i", str(video),
         "-vf",
-        f"drawtext=text='{safe}':fontcolor=white:fontsize={max(18, cfg.height // 14)}"
-        f"{fontarg}:box=1:boxcolor=black@0.45:boxborderw=18:"
-        f"x=(w-text_w)/2:y=h*0.82:enable='between(t,0,2)'",
+        # Title band
+        f"drawtext=text='{safe}':fontcolor={ffmpeg_color(theme.ink)}:fontsize={title_size}"
+        f"{fontarg}:box=1:boxcolor={ffmpeg_color(theme.primary, 0.92)}:boxborderw=22:"
+        f"x=(w-text_w)/2:y=h*0.72:enable='between(t,0,3)',"
+        # Brand line under it
+        f"drawtext=text='{brand}':fontcolor=white:fontsize={brand_size}"
+        f"{fontarg}:box=1:boxcolor={ffmpeg_color(theme.deep, 0.85)}:boxborderw=12:"
+        f"x=(w-text_w)/2:y=h*0.72+{title_size + 34}:enable='between(t,0,3)'",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
         "-pix_fmt", "yuv420p", "-c:a", "copy",
         str(out_path),
@@ -123,13 +134,17 @@ def burn_title(video: Path, title: str, out_path: Path, cfg) -> Path:
 
 
 def add_song_captions(video: Path, lines: list[str], offset: float, out_path: Path, cfg) -> Path:
-    """Burn lyric lines as simple captions - big and readable for kids."""
+    """Burn lyric lines as themed captions - big and readable for kids."""
+    from .theme import DEFAULT_THEME, ffmpeg_color, attribution
+
+    theme = DEFAULT_THEME
     out_path = Path(out_path)
     font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
     fontarg = f":fontfile={font}" if Path(font).exists() else ""
 
     total = probe_duration(video)
     per_line = max(0.8, (total - offset) / max(len(lines), 1))
+    size = max(16, cfg.height // 18)
 
     filters = []
     for i, line in enumerate(lines):
@@ -137,14 +152,21 @@ def add_song_captions(video: Path, lines: list[str], offset: float, out_path: Pa
         end = min(total, start + per_line)
         safe = line.replace(":", "\\:").replace("'", "\u2019").replace("%", "\\%")
         filters.append(
-            f"drawtext=text='{safe}':fontcolor=white:fontsize={max(16, cfg.height // 18)}"
-            f"{fontarg}:box=1:boxcolor=black@0.5:boxborderw=14:"
-            f"x=(w-text_w)/2:y=h*0.86:enable='between(t,{start:.2f},{end:.2f})'"
+            f"drawtext=text='{safe}':fontcolor={ffmpeg_color(theme.ink)}:fontsize={size}"
+            f"{fontarg}:box=1:boxcolor={ffmpeg_color(theme.primary, 0.88)}:boxborderw=16:"
+            f"x=(w-text_w)/2:y=h*0.85:enable='between(t,{start:.2f},{end:.2f})'"
         )
 
     if not filters:
         shutil.copyfile(video, out_path)
         return out_path
+
+    # Brand tag in the corner for the whole song.
+    filters.append(
+        f"drawtext=text='{attribution()}':fontcolor={ffmpeg_color(theme.deep)}:"
+        f"fontsize={max(10, cfg.height // 40)}{fontarg}:"
+        f"x=w-text_w-16:y=16:enable='gte(t,0)'"
+    )
 
     run([
         "ffmpeg", "-y", "-i", str(video),

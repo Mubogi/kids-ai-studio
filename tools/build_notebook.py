@@ -302,6 +302,10 @@ print("size:", round(finished.stat().st_size / 1e6, 1), "MB")
 The inline player works for short clips. For anything longer, download the file
 from the **Output** panel on the right — Kaggle keeps `/kaggle/working` when you
 save the version.
+
+This also builds a **branded preview page**: a single standalone HTML file with
+the video, storyboard, lyrics and the JD Hub yellow theme. Download it and open
+it in any browser — no server, no internet needed.
 """
     ),
     code(
@@ -312,7 +316,13 @@ display(Video(str(finished), embed=True, width=640))
 import shutil
 target = WORK / "my_kids_video.mp4"
 shutil.copyfile(finished, target)
-print("copied to", target, "- download this from the Output panel")
+
+# Branded standalone preview page (video + storyboard + lyrics, JD Hub yellow).
+!python {repo_dir}/tools/build_preview.py "{target}" "{cfg.out_dir}/storyboard.json"
+
+print("download from the Output panel:")
+for f in sorted(Path(WORK).glob("*.mp4")) + sorted(Path(WORK).glob("*.html")):
+    print("  -", f.name, f"({f.stat().st_size / 1e6:.1f} MB)")
 """
     ),
     md(

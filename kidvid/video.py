@@ -15,6 +15,7 @@ from typing import Protocol
 
 from .config import ShowConfig
 from .storyboard import Scene
+from .theme import DEFAULT_THEME, Theme
 from .util import run, hex_hue
 
 
@@ -27,25 +28,19 @@ class VideoBackend(Protocol):
 class MockVideoBackend:
     """Renders a smooth colour-gradient clip per scene. No GPU required.
 
-    Scene colour is derived from the beat, so each scene is visually
-    distinct and you can confirm ordering in the final cut.
+    Scene colour comes from the brand theme's per-beat palette, so each scene
+    is visually distinct and you can confirm ordering in the final cut.
     """
 
-    _BEAT_BASE = {
-        "setup": "#8ecae6",
-        "journey": "#a7e07a",
-        "problem": "#f4c95d",
-        "resolution": "#ffb4a2",
-    }
-
-    def __init__(self, seed: int = 0) -> None:
+    def __init__(self, seed: int = 0, theme: Theme | None = None) -> None:
         self.seed = seed
+        self.theme = theme or DEFAULT_THEME
 
     def generate(self, scene: Scene, cfg: ShowConfig, out_path: Path) -> Path:
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        base = self._BEAT_BASE.get(scene.beat, "#c9b6e4")
+        base = self.theme.beats.get(scene.beat, self.theme.soft)
         drift = hex_hue(base, shift=(scene.index * 7) % 40)
 
         # Draw a soft vertical gradient in Python, then let ffmpeg loop it
