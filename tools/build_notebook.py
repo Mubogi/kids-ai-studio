@@ -12,14 +12,30 @@ from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "notebooks" / "kidvid_kaggle.ipynb"
 
+# nbformat >= 5 requires a stable, unique id on every cell. Kaggle's validator
+# warns loudly without them.
+_id_counter = 0
+
+
+def _next_id() -> int:
+    global _id_counter
+    _id_counter += 1
+    return _id_counter
+
 
 def md(text: str) -> dict:
-    return {"cell_type": "markdown", "metadata": {}, "source": text.splitlines(keepends=True)}
+    return {
+        "cell_type": "markdown",
+        "id": f"md-{_next_id()}",
+        "metadata": {},
+        "source": text.splitlines(keepends=True),
+    }
 
 
 def code(text: str) -> dict:
     return {
         "cell_type": "code",
+        "id": f"code-{_next_id()}",
         "execution_count": None,
         "metadata": {},
         "outputs": [],
@@ -47,13 +63,18 @@ full-precision Wan 14B or HunyuanVideo — don't waste hours trying.
     ),
     md("## 1. Check the GPU"),
     code(
-        """import subprocess, sys
+        """import shutil, subprocess
 
-print(subprocess.run(["nvidia-smi"], capture_output=True, text=True).stdout or "NO GPU")
+# nvidia-smi is not always on PATH in Kaggle images, so treat it as optional.
+if shutil.which("nvidia-smi"):
+    print(subprocess.run(["nvidia-smi"], capture_output=True, text=True).stdout)
+else:
+    print("nvidia-smi not on PATH; falling back to torch")
 
 import torch
 assert torch.cuda.is_available(), (
-    "No GPU. Set Settings -> Accelerator -> GPU T4 x2, then Runtime -> Restart."
+    "No GPU. In the right-hand panel: Settings -> Accelerator -> GPU T4 x2,"
+    " then Session -> Restart."
 )
 free, total = torch.cuda.mem_get_info()
 print(f"GPU: {torch.cuda.get_device_name(0)}")
