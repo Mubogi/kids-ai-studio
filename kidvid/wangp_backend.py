@@ -24,6 +24,26 @@ from .util import run, PipelineError
 # pipeline would not have recognised.
 DEFAULT_WAN_MODEL = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
 
+# repo root, i.e. the directory containing kidvid/ and tools/. Derived from
+# this file's location so it does not depend on the process working
+# directory - the notebook and the kidvid CLI both run from elsewhere, and a
+# relative "tools/wangp_bridge.py" silently resolved to nothing in both.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _default_bridge() -> str:
+    """Find the bridge next to this package, or alongside an installed tree."""
+    candidates = [
+        _REPO_ROOT / "tools" / "wangp_bridge.py",
+        Path.cwd() / "tools" / "wangp_bridge.py",
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    # Nothing found yet: return the in-repo path so the error message names
+    # the file the user is expected to have.
+    return str(candidates[0])
+
 
 class WanGPBackend:
     """Generate one clip per scene with Wan 2.2 on CUDA."""
@@ -31,7 +51,7 @@ class WanGPBackend:
     def __init__(
         self,
         model: str = DEFAULT_WAN_MODEL,
-        bridge: str = "tools/wangp_bridge.py",
+        bridge: str | None = None,
         python: str | None = None,
         dtype: str = "fp16",
         offload: str = "auto",
@@ -46,7 +66,7 @@ class WanGPBackend:
         avoids the per-step host-device copies.
         """
         self.model = model
-        self.bridge = Path(bridge)
+        self.bridge = Path(bridge) if bridge else Path(_default_bridge())
         self.python = python or sys.executable
         self.dtype = dtype
         self.offload = offload
