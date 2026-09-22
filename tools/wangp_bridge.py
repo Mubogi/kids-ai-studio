@@ -127,7 +127,24 @@ def load_pipeline(kind: str, model: str, dtype: str, offload: str):
         # holds the module being run. Doing this by hand with .to() would
         # leave prompt embeddings on the text encoder's card while the
         # latents sat on the transformer's, which faults.
+        #
+        # device_map="balanced" fills each card to the brim, and that fails
+        # on a T4: cuBLAS needs its own scratch space for a GEMM handle, and
+        # with no room left cublasCreate returns ALLOC_FAILED mid-generation.
+        # max_memory reserves headroom so the library still has somewhere to
+        # put its workspace.
+        headroom = float(os.environ.get("WAN_MAX_MEM_HEADROOM_GB", "2"))
+        import torch
+
+        max_memory = {}
+        for i in range(torch.cuda.device_count()):
+            total = torch.cuda.get_device_properties(i).total_memory
+            gib = max(int(total / 2 ** 30 - headroom), 2)
+            max_memory[i] = f"{gib}GiB"
+            _log(f"  cuda:{i} budget {gib}GiB (of "
+                 f"{total / 2 ** 30:.1f}GiB, {headroom:.0f}GiB headroom)")
         kwargs["device_map"] = "balanced"
+        kwargs["max_memory"] = max_memory
         pipe = cls.from_pretrained(model, **kwargs)
         # tiling/slicing still apply; no offload call, accelerate owns placement.
         for fn in ("enable_tiling", "enable_slicing"):
