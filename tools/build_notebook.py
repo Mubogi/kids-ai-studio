@@ -284,9 +284,9 @@ from kidvid.wangp_backend import DEFAULT_WAN_MODEL, WanGPBackend
 # umt5-xxl text encoder (~9GB) total ~19GB, which does not fit a T4's 15.6GB
 # together. Offload keeps one component on the GPU at a time.
 #
-# On a 24GB+ card (A100, L4, 4090) pass offload=False for a large speedup,
+# On a 24GB+ card (A100, L4, 4090) pass offload="none" for a large speedup,
 # and dtype="bf16" if the card supports it.
-backend = WanGPBackend(model=DEFAULT_WAN_MODEL, dtype="fp16", offload=True)
+backend = WanGPBackend(model=DEFAULT_WAN_MODEL, dtype="fp16", offload="model")
 
 clips_dir = Path(cfg.out_dir) / "clips"
 clips_dir.mkdir(parents=True, exist_ok=True)

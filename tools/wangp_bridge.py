@@ -72,44 +72,47 @@ def _torch_dtype(name: str):
     return dtype
 
 
-def build_pipeline(model: str, dtype: str, offload: bool):
-    from diffusers import WanPipeline
+def _apply_offload(pipe, mode: str) -> None:
+    """Place the pipeline on the GPU as frugally as the mode allows.
 
-    torch_dtype = _torch_dtype(dtype)
-    _log(f"loading {model} as {torch_dtype}")
-    pipe = WanPipeline.from_pretrained(
-        model, torch_dtype=torch_dtype, use_safetensors=True)
-
-    if offload:
-        _log("enabling model CPU offload (weights do not fit VRAM together)")
-        pipe.enable_model_cpu_offload()
-    else:
+    `model` moves one whole component at a time and is the normal choice,
+    but on a 15.6GB T4 the 5B transformer (~10GB) and the umt5-xxl text
+    encoder (~9GB) do not fit together, and the hand-off between them can
+    still collide. `sequential` offloads every submodule individually: much
+    slower, but it survives a much tighter budget.
+    """
+    if mode == "none":
         pipe.to("cuda")
-
-    # Tiling keeps the VAE decode from spiking on long or large clips.
-    try:
-        pipe.vae.enable_tiling()
-    except Exception:  # noqa: BLE001 - optional optimisation
-        pass
-    return pipe
-
-
-def build_i2v_pipeline(model: str, dtype: str, offload: bool):
-    from diffusers import WanImageToVideoPipeline
-
-    torch_dtype = _torch_dtype(dtype)
-    _log(f"loading {model} as {torch_dtype}")
-    pipe = WanImageToVideoPipeline.from_pretrained(
-        model, torch_dtype=torch_dtype, use_safetensors=True)
-
-    if offload:
+    elif mode == "model":
         pipe.enable_model_cpu_offload()
+    elif mode == "sequential":
+        pipe.enable_sequential_cpu_offload()
     else:
-        pipe.to("cuda")
-    try:
-        pipe.vae.enable_tiling()
-    except Exception:  # noqa: BLE001
-        pass
+        raise ValueError(f"unknown offload mode: {mode}")
+
+    # Both help the VAE decode, which is where video pipelines spike: the
+    # whole clip is decoded in one call, unlike the single frame of an
+    # image model.
+    for fn in ("enable_tiling", "enable_slicing"):
+        try:
+            getattr(pipe.vae, fn)()
+        except Exception:  # noqa: BLE001 - optional optimisations
+            pass
+
+
+def load_pipeline(kind: str, model: str, dtype: str, offload: str):
+    """Build the text-to-video ("t2v") or image-to-video ("i2v") pipeline."""
+    from diffusers import WanImageToVideoPipeline, WanPipeline
+
+    cls = WanImageToVideoPipeline if kind == "i2v" else WanPipeline
+    torch_dtype = _torch_dtype(dtype)
+    _log(f"loading {model} as {torch_dtype} (offload={offload})")
+    # low_cpu_mem_usage avoids materialising a full fp32 copy in host RAM
+    # while loading, which Kaggle sessions can otherwise run out of.
+    pipe = cls.from_pretrained(
+        model, torch_dtype=torch_dtype, use_safetensors=True,
+        low_cpu_mem_usage=True)
+    _apply_offload(pipe, offload)
     return pipe
 
 
@@ -141,8 +144,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--guidance", default=5.0, type=float)
     p.add_argument("--seed", default=1234, type=int)
     p.add_argument("--dtype", default="fp16", choices=["fp16", "bf16", "fp32"])
-    p.add_argument("--no-offload", action="store_true",
-                   help="keep the whole model on GPU (needs >24GB)")
+    p.add_argument("--offload", default="model",
+                   choices=["model", "sequential", "none"],
+                   help="model: one component on GPU at a time (default); "
+                        "sequential: every submodule, slowest but tightest; "
+                        "none: whole model in VRAM, needs >24GB")
     args = p.parse_args(argv)
 
     import torch
@@ -157,8 +163,22 @@ def main(argv: list[str] | None = None) -> int:
     _log(f"{width}x{height}, {frames_n} frames @ {args.fps}fps, "
          f"{args.steps} steps, guidance {args.guidance}")
 
-    offload = not args.no_offload
-    started = time.time()
+    # Try the requested offload mode, then fall back to progressively more
+    # aggressive ones on OOM. A 15.6GB T4 is right on the edge for this
+    # model, and which mode actually fits depends on the diffusers version,
+    # so discovering it at runtime beats hard-coding one answer.
+    ladder = [args.offload]
+    for fallback in ("sequential", "none"):
+        if fallback not in ladder and args.offload != "none":
+            ladder.append(fallback)
+    ladder = [m for m in ladder if m != "none"] or ["sequential"]
+
+    kind = "i2v" if args.image else "t2v"
+    image = None
+    if args.image:
+        from PIL import Image
+
+        image = Image.open(args.image).convert("RGB")
 
     kwargs = dict(width=width, height=height, num_frames=frames_n,
                   num_inference_steps=args.steps,
@@ -167,17 +187,30 @@ def main(argv: list[str] | None = None) -> int:
     if args.negative:
         kwargs["negative_prompt"] = args.negative
 
-    if args.image:
-        from PIL import Image
+    started = time.time()
+    result = None
+    pipe = None
+    for i, mode in enumerate(ladder):
+        try:
+            pipe = load_pipeline(kind, args.model, args.dtype, mode)
+            _log("generating (this is the slow part)")
+            if image is not None:
+                result = pipe(prompt=args.prompt, image=image, **kwargs)
+            else:
+                result = pipe(prompt=args.prompt, **kwargs)
+            break
+        except torch.OutOfMemoryError:
+            if i + 1 == len(ladder):
+                _log(f"ERROR: out of memory even with offload={mode}. "
+                     "Try --seconds 2 or --height 384.")
+                return 3
+            _log(f"out of memory with offload={mode}; retrying with "
+                 f"offload={ladder[i + 1]}")
+            # Drop the failed pipeline before rebuilding, or its weights are
+            # still resident and the retry fails for the same reason.
+            result, pipe = None, None
+            torch.cuda.empty_cache()
 
-        image = Image.open(args.image).convert("RGB")
-        pipe = build_i2v_pipeline(args.model, args.dtype, offload)
-        result = pipe(prompt=args.prompt, image=image, **kwargs)
-    else:
-        pipe = build_pipeline(args.model, args.dtype, offload)
-        result = pipe(prompt=args.prompt, **kwargs)
-
-    _log("generating (this is the slow part)")
     frames = result.frames[0]
 
     export(frames, args.out, args.fps)

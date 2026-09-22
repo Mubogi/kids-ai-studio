@@ -34,13 +34,14 @@ class WanGPBackend:
         bridge: str = "tools/wangp_bridge.py",
         python: str | None = None,
         dtype: str = "fp16",
-        offload: bool = True,
+        offload: str = "model",
     ) -> None:
         """Defaults suit a 16GB T4: fp16 with model-level CPU offload.
 
         A T4 is sm_75 and has no bfloat16, so fp16 is the right precision
-        there. On a 24GB+ card pass ``offload=False`` for a solid speedup,
-        since offloading costs a host-device copy per step.
+        there. Set ``offload="none"`` on a 24GB+ card for a large speedup -
+        offloading costs a host-device copy per step. The bridge also retries
+        with progressively tighter offloading if it hits an out-of-memory.
         """
         self.model = model
         self.bridge = Path(bridge)
@@ -72,9 +73,8 @@ class WanGPBackend:
             "--guidance", str(cfg.guidance),
             "--seed", str(cfg.seed + scene.index),
             "--dtype", self.dtype,
+            "--offload", self.offload,
         ]
-        if not self.offload:
-            cmd.append("--no-offload")
         # Image-to-video when the caller supplied a starting picture.
         if scene.image:
             cmd += ["--image", str(scene.image)]
