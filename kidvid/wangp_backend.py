@@ -56,14 +56,16 @@ class WanGPBackend:
         dtype: str = "fp16",
         offload: str = "auto",
     ) -> None:
-        """Defaults suit a 16GB T4: fp16, picking the offload mode at runtime.
+        """Defaults suit a T4: fp16, picking the offload mode at runtime.
 
         A T4 is sm_75 and has no bfloat16, so fp16 is the right precision.
         ``offload="auto"`` uses accelerate's balanced device map when the
         machine has two or more GPUs, and falls back to single-card model
-        offload otherwise; the bridge also retries at lower resolutions if it
-        runs out of memory either way. On a 24GB+ card, ``offload="none"``
-        avoids the per-step host-device copies.
+        offload otherwise. On a single T4 that fallback does not fit - model
+        offload OOMs even at 512x288, and sequential offload is OOM-killed on
+        host RAM - so on Kaggle select the GPU T4 x2 accelerator. The bridge
+        also retries at lower resolutions if it runs out of memory. On a
+        24GB+ card, ``offload="none"`` avoids the per-step host-device copies.
         """
         self.model = model
         self.bridge = Path(bridge) if bridge else Path(_default_bridge())

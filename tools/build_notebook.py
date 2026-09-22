@@ -134,7 +134,11 @@ REPO_BRANCH = ""
 
 import shutil
 
-repo_dir = WORK / "kidvid"
+# The repo must NOT be cloned into a directory called `kidvid`: the package
+# inside it is also `kidvid/`, so `import kidvid` would resolve to the repo
+# root (which has no config.py) instead of the package. Name it after the
+# repo, and put that directory on sys.path in the cells below.
+repo_dir = WORK / "kids-ai-studio"
 if repo_dir.exists():
     shutil.rmtree(repo_dir)
 
@@ -230,7 +234,7 @@ NARRATE = False
     md("### Preview the storyboard before spending GPU time"),
     code(
         """import sys
-sys.path.insert(0, str(WORK))
+sys.path.insert(0, str(repo_dir))
 
 from kidvid.config import ShowConfig
 
@@ -290,13 +294,22 @@ committing to the rest.
 # doesn't throw away music you already made.
 import os
 os.chdir(WORK)
-sys.path.insert(0, str(WORK))
+sys.path.insert(0, str(repo_dir))
 
 from kidvid.wangp_backend import DEFAULT_WAN_MODEL, WanGPBackend
 
-# fp16 plus model-level CPU offload: the 5B transformer (~10GB) and the
-# umt5-xxl text encoder (~9GB) total ~19GB, which does not fit a T4's 15.6GB
-# together. Offload keeps one component on the GPU at a time.
+# fp16, because a T4 is sm_75 and has no bfloat16.
+#
+# offload="auto" splits the model across both T4s with accelerate's balanced
+# device map, which is the only placement that fits here: the 5B transformer
+# (~10GB) and the umt5-xxl text encoder (~9GB) total ~19GB against ~13GB
+# usable per card. The bridge reserves VRAM headroom so cuBLAS still has room
+# for its GEMM workspace - without that it dies with CUBLAS_STATUS_ALLOC_FAILED
+# partway through denoising.
+#
+# Do NOT switch this to single-card model or sequential offload: both were
+# measured on a T4 and both fail. Model offload OOMs even at 512x288, and
+# sequential offload needs ~20GB of host RAM and gets OOM-killed at ~13GB.
 #
 # On a 24GB+ card (A100, L4, 4090) pass offload="none" for a large speedup,
 # and dtype="bf16" if the card supports it.
