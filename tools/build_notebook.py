@@ -7,6 +7,7 @@ instead of being an unreadable blob of JSON in git history.
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
@@ -68,7 +69,7 @@ off for a large speedup.
     ),
     md("## 1. Check the GPU"),
     code(
-        """import shutil, subprocess
+        r"""import shutil, subprocess
 
 # nvidia-smi is not always on PATH in Kaggle images, so treat it as optional.
 if shutil.which("nvidia-smi"):
@@ -381,7 +382,7 @@ it in any browser — no server, no internet needed.
 """
     ),
     code(
-        """from IPython.display import Video, display
+        r"""from IPython.display import Video, display
 
 display(Video(str(finished), embed=True, width=640))
 
@@ -439,6 +440,43 @@ Everything you generate here is yours.
 ]
 
 
+def _validate(notebook: dict) -> None:
+    """Parse every code cell so a broken cell fails here, not on Kaggle.
+
+    Writing the notebook as Python source means an escape can be consumed by
+    the builder's own string literal rather than surviving into the cell - a
+    `\\n` in a non-raw triple-quoted block becomes a real newline and splits a
+    string literal in two. That is invisible locally and only shows up as a
+    SyntaxError after a paid GPU run has already started, so check it up front.
+    """
+    problems = []
+    for i, cell in enumerate(notebook["cells"]):
+        if cell["cell_type"] != "code":
+            continue
+        src = "".join(cell["source"])
+        # Drop IPython magics and shell escapes; they are not Python. A magic
+        # can spill onto continuation lines (`!pip install ... \`), which would
+        # otherwise be left behind as stray indented text, so swallow those too.
+        keep, skipping = [], False
+        for ln in src.splitlines():
+            if skipping:
+                skipping = ln.rstrip().endswith("\\")
+                continue
+            if ln.lstrip().startswith(("!", "%")):
+                skipping = ln.rstrip().endswith("\\")
+                continue
+            keep.append(ln)
+        try:
+            ast.parse("\n".join(keep))
+        except SyntaxError as e:
+            problems.append(f"cell {i}: line {e.lineno}: {e.msg}")
+    if problems:
+        raise SystemExit(
+            "generated notebook has invalid code cells:\n  "
+            + "\n  ".join(problems)
+        )
+
+
 def main() -> None:
     notebook = {
         "cells": CELLS,
@@ -450,6 +488,7 @@ def main() -> None:
         "nbformat": 4,
         "nbformat_minor": 5,
     }
+    _validate(notebook)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(notebook, indent=1))
     print(f"wrote {OUT} ({len(CELLS)} cells)")
