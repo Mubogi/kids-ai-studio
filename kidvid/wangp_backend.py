@@ -1,15 +1,12 @@
-"""Adapter that runs real open models on a free Kaggle GPU.
+"""Adapter that runs real open video models on a free Kaggle GPU.
 
-Honest note on how this works
------------------------------
-WanGP's public interface is a Gradio web app plus a CLI whose flags change
-between releases. Rather than hard-code flags that may not exist, this
-backend shells out to `tools/wangp_bridge.py`, which you run inside the
-Kaggle notebook where WanGP is installed. If the bridge cannot find a
-working entrypoint it stops with an explicit message instead of guessing.
+This is the only backend here that produces genuine frame-by-frame motion.
+The image backends in ai_backends.py animate a still with a camera move;
+this one runs Wan 2.2 diffusion to synthesise actual movement.
 
-That keeps this package runnable on any machine (MockVideoBackend) while
-the GPU-heavy part stays in the notebook.
+It shells out to `tools/wangp_bridge.py`, which calls the diffusers Wan
+pipelines directly. The GPU-heavy part therefore runs on the Kaggle box
+while this package stays importable on a laptop.
 """
 
 from __future__ import annotations
@@ -21,22 +18,35 @@ from .config import ShowConfig
 from .storyboard import Scene, negative_for
 from .util import run, PipelineError
 
+# The diffusers repo for the 5B hybrid text/image-to-video model. Note this
+# is the *transformers* checkpoint, not a WanGP GGUF name - the previous
+# default here was a WanGP-style quantisation tag that the diffusers
+# pipeline would not have recognised.
+DEFAULT_WAN_MODEL = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
+
 
 class WanGPBackend:
-    """Generate one clip per scene using Wan 2.2 / LTX inside WanGP."""
+    """Generate one clip per scene with Wan 2.2 on CUDA."""
 
     def __init__(
         self,
-        model: str = "wan2.2_ti2v_5B_Q4_K_M",
+        model: str = DEFAULT_WAN_MODEL,
         bridge: str = "tools/wangp_bridge.py",
         python: str | None = None,
+        dtype: str = "fp16",
+        offload: bool = True,
     ) -> None:
-        """Defaults to the Q4_K_M quantised Wan 2.2 checkpoint, which is the
-        variant that fits Kaggle's 16GB T4. On a 24GB+ card, pass
-        ``model="wan2.2_ti2v_5B"`` for bf16 quality."""
+        """Defaults suit a 16GB T4: fp16 with model-level CPU offload.
+
+        A T4 is sm_75 and has no bfloat16, so fp16 is the right precision
+        there. On a 24GB+ card pass ``offload=False`` for a solid speedup,
+        since offloading costs a host-device copy per step.
+        """
         self.model = model
         self.bridge = Path(bridge)
         self.python = python or sys.executable
+        self.dtype = dtype
+        self.offload = offload
 
     def generate(self, scene: Scene, cfg: ShowConfig, out_path: Path) -> Path:
         if not self.bridge.exists():
@@ -61,7 +71,10 @@ class WanGPBackend:
             "--steps", str(cfg.steps),
             "--guidance", str(cfg.guidance),
             "--seed", str(cfg.seed + scene.index),
+            "--dtype", self.dtype,
         ]
+        if not self.offload:
+            cmd.append("--no-offload")
         # Image-to-video when the caller supplied a starting picture.
         if scene.image:
             cmd += ["--image", str(scene.image)]
@@ -70,3 +83,4 @@ class WanGPBackend:
         if not out_path.exists():
             raise PipelineError(f"backend reported success but {out_path} is missing")
         return out_path
+

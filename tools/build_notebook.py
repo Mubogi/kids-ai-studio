@@ -53,14 +53,17 @@ music, and narration.
 **Before you run:** `Settings → Accelerator → GPU T4 x2` and `Internet → On`.
 Without the GPU accelerator this notebook will stop at step 1.
 
-**How long:** first run downloads ~10-15 GB of model weights and takes
-10-30 minutes. After that, one 5-second clip is roughly 1-3 minutes.
+**How long:** first run downloads ~19 GB of model weights and takes
+10-30 minutes. After that, one 5-second 480p clip is roughly 2-6 minutes
+with offloading enabled.
 
-**VRAM reality check.** A free T4 has ~15 GB and is **sm_75, so it has no
-bfloat16**. The default model here is a GGUF **Q4_K_M** build of Wan 2.2
-TI2V-5B precisely because it fits: the unquantised bf16 checkpoint wants
-~24 GB and will not load. It also will *not* run full-precision Wan 14B or
-HunyuanVideo — don't waste hours trying.
+**VRAM reality check.** A free T4 has ~15.6 GB and is **sm_75, so it has no
+bfloat16** — fp16 is the only usable half precision there. Wan 2.2 TI2V-5B
+is the right model for this card: the 5B transformer (~10 GB) plus its
+umt5-xxl text encoder (~9 GB) exceed the card together, so the bridge runs
+with model-level CPU offload. It will *not* run the 14B Wan models or
+HunyuanVideo — don't waste hours trying. A 24GB+ card can turn offloading
+off for a large speedup.
 """
     ),
     md("## 1. Check the GPU"),
@@ -145,31 +148,36 @@ print(subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True).std
 """
     ),
     md(
-        """## 4. Install WanGP
+        """## 4. Install the video model runtime
 
-[WanGP](https://github.com/deepbeepmeep/Wan2GP) is the friendly front end for
-the open video models. Its own license lets you keep and sell what you make;
-you just can't resell WanGP itself as a hosted service.
+The real motion comes from **Wan 2.2 TI2V-5B** driven through `diffusers`.
+It is Apache-2.0 licensed, does text-to-video *and* image-to-video, and is
+small enough to fit a T4 once offloading is on.
 
-We install it into a **separate directory** because it pins its own torch
-version, which would otherwise clash with the Kaggle image.
+Its output is yours to keep and sell; there is no hosted-service restriction
+on the weights, unlike some of the web UIs.
+
+We deliberately do **not** install a second copy of torch. Kaggle's image
+already ships a CUDA build (`2.10.0+cu128`), and reinstalling torch is the
+most common way to break a Kaggle GPU session.
 """
     ),
     code(
-        """!pip install -q "huggingface_hub[cli]" einops ftfy sentencepiece omegaconf
-
-wangp_dir = WORK / "Wan2GP"
-if not wangp_dir.exists():
-    !git clone --depth 1 https://github.com/deepbeepmeep/Wan2GP {wangp_dir}
-
-!ls {wangp_dir}
+        """!pip install -q "diffusers>=0.35" transformers accelerate safetensors \\
+    imageio imageio-ffmpeg ftfy sentencepiece
+print("install done")
 """
     ),
     code(
-        """# Find out which Python entrypoints this WanGP build actually exposes.
-# WanGP's CLI flags move between releases, so we query instead of guessing.
-%cd {wangp_dir}
-!python {repo_dir}/tools/wangp_bridge.py --list
+        """import torch, diffusers
+print("torch:", torch.__version__)
+print("diffusers:", diffusers.__version__)
+print("cuda:", torch.cuda.is_available())
+if torch.cuda.is_available():
+    print("gpu:", torch.cuda.get_device_name(0))
+    # A T4 is sm_75 and has no bfloat16. Printed up front because it decides
+    # which dtype the bridge may use.
+    print("bfloat16 supported:", torch.cuda.is_bf16_supported())
 """
     ),
     md(
@@ -265,16 +273,16 @@ import os
 os.chdir(WORK)
 sys.path.insert(0, str(WORK))
 
-from kidvid.wangp_backend import WanGPBackend
+from kidvid.wangp_backend import DEFAULT_WAN_MODEL, WanGPBackend
 
-# Kaggle's free GPU is a Tesla T4: 16GB and sm_75, which has NO bfloat16.
-# wan2.2_ti2v_5B needs ~24GB in bf16, so it cannot fit here. GGUF weights
-# offload to system RAM and load only what each step needs, which brings the
-# floor down to ~8GB. If you ever move to a 24GB+ card (A100, L4, RTX 4090),
-# reset this to "wan2.2_ti2v_5B" in bf16 for noticeably better quality.
-MODEL = "wan2.2_ti2v_5B_Q4_K_M"
+# fp16 plus model-level CPU offload: the 5B transformer (~10GB) and the
+# umt5-xxl text encoder (~9GB) total ~19GB, which does not fit a T4's 15.6GB
+# together. Offload keeps one component on the GPU at a time.
+#
+# On a 24GB+ card (A100, L4, 4090) pass offload=False for a large speedup,
+# and dtype="bf16" if the card supports it.
+backend = WanGPBackend(model=DEFAULT_WAN_MODEL, dtype="fp16", offload=True)
 
-backend = WanGPBackend(model=MODEL)
 clips_dir = Path(cfg.out_dir) / "clips"
 clips_dir.mkdir(parents=True, exist_ok=True)
 
@@ -387,26 +395,27 @@ for f in sorted(Path(WORK).glob("*.mp4")) + sorted(Path(WORK).glob("*.html")):
         """## 10. Coming back later
 
 Kaggle wipes `/kaggle/temp` between sessions, so model weights re-download
-unless you save them. To keep them, point WanGP's checkpoint directory at
-`/kaggle/working` instead — but note the 20 GB output limit.
+unless you save them. To keep them, set `HF_HOME` to a folder under
+`/kaggle/working` instead — but note the 20 GB output limit, and the 5B
+model plus its text encoder is already most of that.
 
 Useful tweaks:
 
 | Want | Change |
 | --- | --- |
-| Faster | `STEPS = 6` with a Lightning/distilled checkpoint |
-| Longer clips | raise `SECONDS_PER_SCENE` (VRAM grows fast) |
+| Faster | drop `STEPS` to 15-20, or shorten `SECONDS_PER_SCENE` |
+| Longer clips | raise `SECONDS_PER_SCENE`. Keep the frame count at 4n+1; the bridge snaps it for you |
 | More scenes | raise `SCENES`; the storyboard cycles beats automatically |
 | A real voice | swap `EspeakNarrator` in `kidvid/tts.py` for Kokoro or Piper |
 | Better writing | pass an LLM into `build_storyboard` to replace the templates |
+| Higher quality | a 24GB+ card with `offload=False` and `dtype="bf16"` |
 
 ### Licensing, in one paragraph
 
-Wan 2.2, LTX-Video, ACE-Step and MusicGen are Apache-2.0 or MIT — you can use
-what you make, including commercially. HunyuanVideo ships under Tencent's own
-license with restrictions, so read it before shipping anything made with it.
-WanGP is free to use and you may sell its output, but you may not resell WanGP
-itself as a hosted or paid service. Everything you generate here is yours.
+Wan 2.2 and ACE-Step are Apache-2.0, MusicGen is MIT — you can use what you
+make, including commercially. HunyuanVideo ships under Tencent's own license
+with restrictions, so read it before shipping anything made with it.
+Everything you generate here is yours.
 """
     ),
 ]
