@@ -31,9 +31,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--narrate", action="store_true",
                    help="add offline narration / sung lyrics")
     p.add_argument("--video-backend", default=None,
-                   choices=[None, "mock", "wangp"])
+                   choices=[None, "mock", "ai", "wangp"],
+                   help="'ai' = free hosted image model, 'mock' = offline "
+                        "gradients, 'wangp' = local GPU models")
     p.add_argument("--music-backend", default=None,
-                   choices=[None, "auto", "mock", "acestep", "musicgen"])
+                   choices=[None, "auto", "mock", "ai", "acestep", "musicgen"],
+                   help="'ai' = free hosted song model with vocals")
     p.add_argument("--dry-run", action="store_true",
                    help="print the storyboard and exit")
     p.add_argument("--out-dir", default="output")

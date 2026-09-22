@@ -13,6 +13,10 @@ from . import movie
 
 
 def _pick_video_backend(cfg: ShowConfig, backend: str | None):
+    if backend == "ai":
+        from .ai_backends import ImageVideoBackend
+
+        return ImageVideoBackend()
     if backend == "mock" or backend is None and not _gpu_available():
         from .video import MockVideoBackend
 
@@ -25,6 +29,10 @@ def _pick_video_backend(cfg: ShowConfig, backend: str | None):
 
 
 def _pick_music_backend(backend: str | None):
+    if backend == "ai":
+        from .ai_backends import ACEStepMusicBackend
+
+        return ACEStepMusicBackend()
     if backend == "mock":
         from .music import MockMusicBackend
 
@@ -51,6 +59,19 @@ def _gpu_available() -> bool:
         return torch.cuda.is_available()
     except Exception:
         return False
+
+
+def _pick_narrator(cfg: ShowConfig):
+    """Prefer the neural voice; fall back to espeak so narration still happens."""
+    from .ai_backends import EdgeNarrator
+
+    neural = EdgeNarrator()
+    if neural.available():
+        return neural
+
+    from .tts import EspeakNarrator
+
+    return EspeakNarrator(voice=cfg.voice)
 
 
 def make_video(
@@ -95,9 +116,27 @@ def make_video(
         total = probe_duration(silent)
         mbackend = _pick_music_backend(music_backend)
         print(f"      music backend: {type(mbackend).__name__}")
-        audio = mbackend.generate(
-            board.music_prompt, min(cfg.music_seconds, total), out_dir / "music.m4a"
-        )
+        lyrics = "\n".join(board.song) if board.song else None
+        try:
+            audio = mbackend.generate(
+                board.music_prompt, min(cfg.music_seconds, total),
+                out_dir / "music.m4a", lyrics=lyrics,
+            )
+        except TypeError:
+            # Backends predating the lyrics argument.
+            audio = mbackend.generate(
+                board.music_prompt, min(cfg.music_seconds, total),
+                out_dir / "music.m4a",
+            )
+        except PipelineError as e:
+            print(f"      {type(mbackend).__name__} failed ({e}); "
+                  f"falling back to the offline arpeggio")
+            from .music import MockMusicBackend
+
+            audio = MockMusicBackend().generate(
+                board.music_prompt, min(cfg.music_seconds, total),
+                out_dir / "music.m4a",
+            )
     else:
         print("[3/5] music disabled")
 
@@ -106,11 +145,10 @@ def make_video(
     want_narration = cfg.narrate if narrate is None else narrate
     if want_narration:
         print("[4/5] narrating")
-        from .tts import EspeakNarrator
-
-        narrator = EspeakNarrator(voice=cfg.voice)
+        narrator = _pick_narrator(cfg)
+        print(f"      narrator: {type(narrator).__name__}")
         if not narrator.available():
-            print("      espeak-ng missing, skipping narration")
+            print("      narrator unavailable, skipping narration")
         elif board.song:
             voiceover = narrator.sing_lines(board.song, out_dir / "voice.wav")
         else:

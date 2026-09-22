@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>JD Hub · Kids AI Studio</title>
+<style>
+  :root{
+    --yellow:#FFC107; --deep:#E6A700; --soft:#FFF4CE;
+    --ink:#2B2117; --paper:#FFFBF0; --accent:#FF8F00;
+    --line:#f0e2ba; --ok:#2e7d32; --bad:#c62828;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-text-size-adjust:100%;
+  }
+  header{background:linear-gradient(135deg,var(--yellow),var(--deep));
+    padding:20px 18px 16px; box-shadow:0 2px 14px rgba(43,33,23,.13)}
+  .brand{display:flex; align-items:center; gap:11px; flex-wrap:wrap}
+  .mark{width:42px;height:42px;border-radius:12px;background:var(--ink);
+    display:grid;place-items:center;color:var(--yellow);
+    font-weight:800;font-size:19px;flex:none}
+  h1{margin:0; font-size:19px}
+  .sub{font-size:12px; opacity:.82; margin-top:2px}
+  .wrap{max-width:940px; margin:0 auto; padding:18px}
+  .card{background:#fff; border:1px solid var(--line); border-radius:14px;
+    padding:18px; margin-bottom:16px}
+  h2{margin:0 0 4px; font-size:16px}
+  .hint{font-size:12.5px; opacity:.7; margin-bottom:13px}
+  label{display:block; font-size:12.5px; font-weight:650; margin:13px 0 5px}
+  textarea,input,select{width:100%; padding:11px 12px; border:1.5px solid var(--line);
+    border-radius:10px; font:inherit; background:#fff; color:var(--ink)}
+  textarea{min-height:82px; resize:vertical}
+  textarea:focus,input:focus,select:focus{outline:none;
+    border-color:var(--yellow); box-shadow:0 0 0 3px var(--soft)}
+  .row{display:grid; grid-template-columns:1fr 1fr; gap:11px}
+  .row3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:11px}
+  .chips{display:flex; gap:7px; flex-wrap:wrap; margin-top:7px}
+  .chip{border:1.5px solid var(--line); background:#fff; color:var(--ink);
+    padding:6px 11px; border-radius:999px; font-size:12.5px; cursor:pointer}
+  .chip:hover{border-color:var(--yellow); background:var(--soft)}
+  .chip.on{background:var(--ink); color:var(--yellow); border-color:var(--ink)}
+  button.go{width:100%; margin-top:17px; padding:14px; border:0; cursor:pointer;
+    background:linear-gradient(135deg,var(--yellow),var(--deep));
+    color:var(--ink); font-size:16px; font-weight:750; border-radius:11px;
+    box-shadow:0 3px 12px rgba(230,167,0,.36)}
+  button.go:disabled{opacity:.55; cursor:not-allowed; box-shadow:none}
+  .bar{height:8px; background:var(--soft); border-radius:99px; overflow:hidden; margin-top:10px}
+  .bar > i{display:block; height:100%; width:0;
+    background:linear-gradient(90deg,var(--yellow),var(--accent)); transition:width .4s}
+  .stage{font-size:13px; font-weight:650; margin-top:9px}
+  .log{font:11.5px/1.5 ui-monospace,Menlo,Consolas,monospace; background:var(--ink);
+    color:#ffe9b0; padding:11px; border-radius:9px; max-height:170px;
+    overflow:auto; margin-top:11px; white-space:pre-wrap}
+  video{width:100%; border-radius:11px; background:#000; display:block}
+  .meta{display:flex; gap:8px; flex-wrap:wrap; margin:12px 0}
+  .pill{background:var(--soft); border:1px solid var(--line); padding:4px 10px;
+    border-radius:999px; font-size:12px}
+  .pill.ok{background:#e8f5e9; border-color:#c8e6c9; color:var(--ok)}
+  .dl{display:flex; gap:9px; flex-wrap:wrap; margin-top:11px}
+  .dl a{flex:1 1 150px; text-align:center; text-decoration:none; padding:11px;
+    border-radius:10px; background:var(--ink); color:var(--yellow);
+    font-weight:650; font-size:13.5px}
+  .dl a.alt{background:#fff; color:var(--ink); border:1.5px solid var(--line)}
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(215px,1fr));
+    gap:11px; margin-top:13px}
+  .item{border:1px solid var(--line); border-radius:11px; padding:11px; background:#fff}
+  .item h4{margin:0 0 3px; font-size:13.5px}
+  .item p{margin:0 0 9px; font-size:11.5px; opacity:.72}
+  .item a{display:block; text-align:center; text-decoration:none; padding:9px;
+    background:var(--yellow); color:var(--ink); border-radius:8px;
+    font-size:12.5px; font-weight:650}
+  .err{background:#fdecea; border:1px solid #f5c6cb; color:var(--bad);
+    padding:12px; border-radius:10px; font-size:13.5px}
+  .hide{display:none}
+  footer{text-align:center; font-size:11.5px; opacity:.6; padding:8px 18px 30px}
+  @media(max-width:620px){ .row,.row3{grid-template-columns:1fr} .wrap{padding:13px} }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap" style="padding:0">
+    <div class="brand">
+      <div class="mark">JD</div>
+      <div>
+        <h1>Kids AI Studio</h1>
+        <div class="sub" id="brandline">Mubogi Gastavas Jordan Tech Ecosystem</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="card">
+    <h2>Describe your video</h2>
+    <div class="hint">Type an idea. The studio writes it, draws it, scores it, narrates it, then cuts it for social.</div>
+
+    <label for="prompt">Your idea</label>
+    <textarea id="prompt" placeholder="a shy bunny who finds a friend in the forest"></textarea>
+    <div class="chips" id="examples">
+      <button class="chip" type="button">a shy bunny who finds a friend</button>
+      <button class="chip" type="button">a brave little turtle who learns to share</button>
+      <button class="chip" type="button">a friendly dragon who learns to roar</button>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="title">Title (optional)</label>
+        <input id="title" placeholder="The Shy Bunny">
+      </div>
+      <div>
+        <label for="mode">Type</label>
+        <select id="mode">
+          <option value="story">Story video</option>
+          <option value="song">Song video (with lyrics)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row3">
+      <div><label for="scenes">Scenes</label>
+        <input id="scenes" type="number" min="1" max="8" value="3"></div>
+      <div><label for="secs">Seconds each</label>
+        <input id="secs" type="number" min="2" max="15" step="1" value="4"></div>
+      <div><label for="seed">Style seed</label>
+        <input id="seed" type="number" value="1234"></div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="vb">Artwork</label>
+        <select id="vb">
+          <option value="ai">Real AI images (free, no key)</option>
+          <option value="mock">Offline gradients (instant test)</option>
+        </select>
+      </div>
+      <div>
+        <label for="mb">Music</label>
+        <select id="mb">
+          <option value="ai">Real AI song (free, no key)</option>
+          <option value="mock">Offline arpeggio (instant test)</option>
+        </select>
+      </div>
+    </div>
+
+    <label for="images">Add your own pictures (optional, becomes scene 1)</label>
+    <input id="images" type="file" accept="image/*" multiple>
+
+    <div class="chips" style="margin-top:13px">
+      <button class="chip on" type="button" id="tMusic">Music on</button>
+      <button class="chip on" type="button" id="tNarrate">Narration on</button>
+    </div>
+
+    <button class="go" id="go">Generate video</button>
+  </div>
+
+  <div class="card hide" id="progressCard">
+    <h2 id="pTitle">Working…</h2>
+    <div class="bar"><i id="bar"></i></div>
+    <div class="stage" id="stage">Starting</div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <div class="card hide" id="resultCard">
+    <h2 id="rTitle">Your video</h2>
+    <div class="meta" id="meta"></div>
+    <video id="player" controls playsinline></video>
+    <div class="dl">
+      <a id="dlVideo" href="#" download>Download video</a>
+      <a id="dlBoard" class="alt" href="#" download>Storyboard (JSON)</a>
+    </div>
+  </div>
+
+  <div class="card hide" id="socialCard">
+    <h2>Cut for social media</h2>
+    <div class="hint">Pick platforms. Each gets the right aspect ratio, plus burned-in captions.</div>
+    <div class="chips" id="platformChips"></div>
+    <div class="chips" style="margin-top:9px">
+      <button class="chip on" type="button" id="tCaptions">Burn captions</button>
+      <button class="chip on" type="button" data-style="blur" id="tBlur">Blurred fill</button>
+      <button class="chip" type="button" data-style="brand" id="tBrand">Brand yellow pad</button>
+    </div>
+    <button class="go" id="cutBtn" style="font-size:15px">Create social cuts</button>
+    <div class="grid" id="socialGrid"></div>
+  </div>
+
+</div>
+
+<footer id="foot"></footer>
+
+<script>
+const $ = id => document.getElementById(id);
+let jobId = null, poll = null, currentStyle = "blur";
+let musicOn = true, narrateOn = true, captionsOn = true;
+
+$("examples").addEventListener("click", e => {
+  if (e.target.tagName === "BUTTON") { $("prompt").value = e.target.textContent.trim(); }
+});
+const toggle = (el, get, set) => el.addEventListener("click", () => {
+  set(!get()); el.classList.toggle("on", get());
+});
+toggle($("tMusic"), () => musicOn, v => musicOn = v);
+toggle($("tNarrate"), () => narrateOn, v => narrateOn = v);
+toggle($("tCaptions"), () => captionsOn, v => captionsOn = v);
+
+document.querySelectorAll("[data-style]").forEach(b => b.addEventListener("click", () => {
+  currentStyle = b.dataset.style;
+  document.querySelectorAll("[data-style]").forEach(x => x.classList.toggle("on", x === b));
+  $("tBlur").classList.toggle("on", currentStyle === "blur");
+}));
+
+fetch("/api/platforms").then(r => r.json()).then(d => {
+  $("brandline").textContent = d.brand_long;
+  $("foot").textContent = d.brand + " · " + d.brand_long;
+  const box = $("platformChips");
+  d.platforms.forEach(p => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip on"; b.dataset.key = p.key;
+    b.textContent = p.label + " (" + p.size.replace("x", "×") + ")";
+    b.title = p.note || "";
+    b.addEventListener("click", () => b.classList.toggle("on"));
+    box.appendChild(b);
+  });
+});
+
+$("go").addEventListener("click", async () => {
+  const prompt = $("prompt").value.trim();
+  if (!prompt) { $("prompt").focus(); return; }
+
+  $("go").disabled = true;
+  $("resultCard").classList.add("hide");
+  $("socialCard").classList.add("hide");
+  $("progressCard").classList.remove("hide");
+  $("log").textContent = "";
+  $("bar").style.width = "0%";
+  $("pTitle").textContent = "Working…";
+  $("stage").textContent = "Uploading your request";
+  $("socialGrid").innerHTML = "";
+
+  const fd = new FormData();
+  fd.append("prompt", prompt);
+  fd.append("title", $("title").value);
+  fd.append("mode", $("mode").value);
+  fd.append("video_backend", $("vb").value);
+  fd.append("music_backend", $("mb").value);
+  fd.append("scenes", $("scenes").value);
+  fd.append("seconds_per_scene", $("secs").value);
+  fd.append("seed", $("seed").value);
+  fd.append("music", musicOn);
+  fd.append("narrate", narrateOn);
+  for (const f of $("images").files) fd.append("images", f);
+
+  try {
+    const res = await fetch("/api/jobs", { method: "POST", body: fd });
+    if (!res.ok) throw new Error((await res.json()).detail || "could not start");
+    jobId = (await res.json()).id;
+    poll = setInterval(tick, 1200);
+    tick();
+  } catch (err) {
+    $("pTitle").textContent = "Could not start";
+    $("stage").innerHTML = '<div class="err">' + err.message + "</div>";
+    $("go").disabled = false;
+  }
+});
+
+async function tick() {
+  if (!jobId) return;
+  const j = await (await fetch("/api/jobs/" + jobId)).json();
+  $("bar").style.width = j.percent + "%";
+  $("stage").textContent = j.stage + " · " + j.percent + "%";
+  $("log").textContent = (j.logs || []).join("\n");
+  $("log").scrollTop = $("log").scrollHeight;
+
+  if (j.status === "done") {
+    clearInterval(poll);
+    $("go").disabled = false;
+    $("pTitle").textContent = "Done";
+    showResult(j.result);
+    $("socialCard").classList.remove("hide");
+  } else if (j.status === "error") {
+    clearInterval(poll);
+    $("go").disabled = false;
+    $("pTitle").textContent = "Something went wrong";
+    $("stage").innerHTML = '<div class="err">' + (j.error || "unknown error") + "</div>";
+  }
+}
+
+function showResult(r) {
+  $("resultCard").classList.remove("hide");
+  $("rTitle").textContent = r.title || "Your video";
+  $("player").src = r.video;
+  const pills = [
+    [r.scenes + " scenes", ""],
+    [r.duration + "s", ""],
+    [r.is_song ? "song" : "story", ""],
+    [r.video_backend, "ok"],
+    [r.has_music ? "AI music" : "no music", r.has_music ? "ok" : ""],
+    [r.has_narration ? "narration" : "no narration", r.has_narration ? "ok" : ""]
+  ];
+  $("meta").innerHTML = pills.map(([t, c]) =>
+    '<span class="pill ' + c + '">' + t + "</span>").join("");
+  $("dlVideo").href = r.video + "?download=1";
+  $("dlBoard").href = r.storyboard + "?download=1";
+}
+
+$("cutBtn").addEventListener("click", async () => {
+  const keys = [...document.querySelectorAll("#platformChips .chip.on")].map(c => c.dataset.key);
+  if (!keys.length || !jobId) return;
+  $("cutBtn").disabled = true;
+  $("cutBtn").textContent = "Cutting…";
+  $("socialGrid").innerHTML = '<p class="hint">Reframing and burning captions. Portrait cuts take a moment.</p>';
+  try {
+    const res = await fetch("/api/jobs/" + jobId + "/social", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platforms: keys, captions: captionsOn, style: currentStyle })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "failed");
+    $("socialGrid").innerHTML = data.social.map(s =>
+      '<div class="item"><h4>' + s.label + '</h4><p>' + s.size +
+      " · " + s.duration + "s" + (s.truncated ? " (trimmed to fit)" : "") +
+      (s.captioned ? " · captions burned in" : "") +
+      '</p><a href="' + s.file + '?download=1" download>Download</a></div>'
+    ).join("");
+  } catch (err) {
+    $("socialGrid").innerHTML = '<div class="err">' + err.message + "</div>";
+  }
+  $("cutBtn").disabled = false;
+  $("cutBtn").textContent = "Create social cuts";
+});
+</script>
+</body>
+</html>
