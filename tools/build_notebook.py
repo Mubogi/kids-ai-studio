@@ -91,7 +91,7 @@ placeholder and paste the files in manually. Nothing here needs a private repo.
 """
     ),
     code(
-        """REPO_URL = "https://github.com/YOUR_USERNAME/kidvid.git"  # <-- change me
+        """REPO_URL = "https://github.com/YOUR_USERNAME/kidvid.git"
 
 import shutil
 
