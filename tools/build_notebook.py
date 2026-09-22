@@ -196,21 +196,29 @@ Three shapes work best:
 """
     ),
     code(
-        """PROMPT = "a brave little turtle who learns to share"
+        """import os
+
+PROMPT = "a brave little turtle who learns to share"
 
 # Optional: one image per scene. Leave empty for pure text-to-video.
 # Upload via the Kaggle file browser, then list them here.
 IMAGE_PATHS: list[str] = []
 
 SCENES = 4
-SECONDS_PER_SCENE = 5.0
+# Short scenes on purpose. Generation cost is roughly linear in frames, and
+# the free GPU quota cannot absorb many 5-second 30-step clips per week -
+# see the timing note further down for the measured numbers.
+SECONDS_PER_SCENE = 3.0
 WIDTH, HEIGHT = 832, 480
 
-# Lower for speed, raise for quality. 30 is a good default for Wan.
-STEPS = 30
+# Lower for speed, raise for quality. Wan's usual default is 30; 12 keeps a
+# story inside the GPU quota, and goes softer rather than breaking.
+STEPS = 12
 
-# 4-8 steps with a "Lightning"/distilled checkpoint - much faster, slightly softer.
-# STEPS = 6
+# VRAM left free on each card so cuBLAS can allocate its GEMM workspace.
+# Without this the run dies with CUBLAS_STATUS_ALLOC_FAILED partway through.
+# Raise it if you still hit that, lower it if the model will not fit.
+os.environ.setdefault("WAN_MAX_MEM_HEADROOM_GB", "2")
 
 # Uncomment to add a robot-but-clear narrator (free, offline).
 # NARRATE = True
@@ -257,18 +265,22 @@ if board.song:
     md(
         """## 6. Generate the clips
 
-This is the slow part, and it is worth knowing the real numbers before you
-start. On a T4, a 5-second 480p clip at 30 steps takes roughly **2-6 minutes**.
-So a 4-scene, 20-second story is roughly **10-25 minutes** of GPU time.
+This is the slow part. Measured on a T4 x2 with balanced placement, a
+1-second 480p clip at 6 steps takes about **4-6 minutes**, so budget roughly
+**20-30 seconds per frame of output**. Wan is a diffusion video model: it is
+not real-time, and this is the honest cost of real motion rather than a
+pan-and-zoom over a still.
 
-Two levers if that is too slow:
+The GPU quota is what makes that tight - roughly 9-12 hours of T4 per week
+on a free account, and one 20-second story can be most of an hour. Two
+levers:
 
-- drop `STEPS` to 6 and use a Lightning/distilled checkpoint (softer, much faster)
-- generate fewer, longer scenes instead of many short ones
+- lower `SCENES` and `SECONDS_PER_SCENE` first; they cut cost linearly
+- `STEPS` below 30 trades detail for speed, and gets noticeably softer
 
-The model is cached after the first scene, so scene 1 is slowest. Progress
-prints as it goes, so you can watch the first clip finish before committing
-to the rest.
+The model loads once per run, not per scene, so the first clip is the
+slowest. Progress prints as it goes, so you can watch scene 1 finish before
+committing to the rest.
 """
     ),
     code(
