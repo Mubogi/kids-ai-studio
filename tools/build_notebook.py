@@ -56,9 +56,11 @@ Without the GPU accelerator this notebook will stop at step 1.
 **How long:** first run downloads ~10-15 GB of model weights and takes
 10-30 minutes. After that, one 5-second clip is roughly 1-3 minutes.
 
-**VRAM reality check.** A free T4 has ~15 GB. That runs **Wan 2.2 TI2V-5B**
-and **LTX** comfortably, and quantized 14B models slowly. It will *not* run
-full-precision Wan 14B or HunyuanVideo — don't waste hours trying.
+**VRAM reality check.** A free T4 has ~15 GB and is **sm_75, so it has no
+bfloat16**. The default model here is a GGUF **Q4_K_M** build of Wan 2.2
+TI2V-5B precisely because it fits: the unquantised bf16 checkpoint wants
+~24 GB and will not load. It also will *not* run full-precision Wan 14B or
+HunyuanVideo — don't waste hours trying.
 """
     ),
     md("## 1. Check the GPU"),
@@ -73,8 +75,15 @@ else:
 
 import torch
 assert torch.cuda.is_available(), (
-    "No GPU. In the right-hand panel: Settings -> Accelerator -> GPU T4 x2,"
-    " then Session -> Restart."
+    "No GPU was granted to this Kaggle account.\n\n"
+    "Setting the accelerator is not enough on its own. Kaggle only hands out\n"
+    "GPU/TPU capacity to accounts with a VERIFIED PHONE NUMBER:\n"
+    "  1. kaggle.com -> your avatar -> Settings -> Phone Verification\n"
+    "  2. enter the SMS code\n"
+    "  3. reopen the notebook -> Settings -> Accelerator -> GPU T4 x2\n"
+    "  4. Session -> Restart\n\n"
+    "Until then every run silently falls back to CPU (the torch build is\n"
+    "+cpu), which cannot generate video at all."
 )
 free, total = torch.cuda.mem_get_info()
 print(f"GPU: {torch.cuda.get_device_name(0)}")
@@ -235,9 +244,18 @@ if board.song:
     md(
         """## 6. Generate the clips
 
-This is the slow part. Each scene loads the model, samples, and saves an MP4.
-Progress prints as it goes, so you can watch the first clip finish before
-committing to the rest.
+This is the slow part, and it is worth knowing the real numbers before you
+start. On a T4, a 5-second 480p clip at 30 steps takes roughly **2-6 minutes**.
+So a 4-scene, 20-second story is roughly **10-25 minutes** of GPU time.
+
+Two levers if that is too slow:
+
+- drop `STEPS` to 6 and use a Lightning/distilled checkpoint (softer, much faster)
+- generate fewer, longer scenes instead of many short ones
+
+The model is cached after the first scene, so scene 1 is slowest. Progress
+prints as it goes, so you can watch the first clip finish before committing
+to the rest.
 """
     ),
     code(
@@ -249,7 +267,14 @@ sys.path.insert(0, str(WORK))
 
 from kidvid.wangp_backend import WanGPBackend
 
-backend = WanGPBackend(model="wan2.2_ti2v_5B")
+# Kaggle's free GPU is a Tesla T4: 16GB and sm_75, which has NO bfloat16.
+# wan2.2_ti2v_5B needs ~24GB in bf16, so it cannot fit here. GGUF weights
+# offload to system RAM and load only what each step needs, which brings the
+# floor down to ~8GB. If you ever move to a 24GB+ card (A100, L4, RTX 4090),
+# reset this to "wan2.2_ti2v_5B" in bf16 for noticeably better quality.
+MODEL = "wan2.2_ti2v_5B_Q4_K_M"
+
+backend = WanGPBackend(model=MODEL)
 clips_dir = Path(cfg.out_dir) / "clips"
 clips_dir.mkdir(parents=True, exist_ok=True)
 

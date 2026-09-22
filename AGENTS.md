@@ -160,3 +160,49 @@ just do not appear, with no error from ffmpeg.
 the work-1 preview URL). One background worker processes jobs one at a
 time; the pipeline stdout is captured and parsed into progress events.
 Front end is a single static file, `kidvid/web/index.html`.
+
+## ROOT CAUSE FOUND: Kaggle gives this account no GPU
+
+A minimal diagnostic notebook (`jordangastavas/gpu-check`) settled it:
+
+    nvidia-smi on PATH: False
+    torch: 2.10.0+cpu
+    cuda available: False
+    device count: 0
+    AssertionError: NO GPU GRANTED to this account
+
+The notebook metadata correctly requested `enable_gpu: true` and
+`accelerator: nvidiaTeslaT4`. Kaggle honoured neither. **Kaggle only grants
+GPU/TPU to accounts with a verified phone number**, so without verification
+every run silently falls back to CPU.
+
+Note the CPU torch build: `2.10.0+cpu`. A GPU session gets a CUDA build, so
+this is proof of a CPU-only session, not a driver problem.
+
+**Fix (user action, cannot be automated):** kaggle.com -> Settings ->
+Phone Verification -> enter SMS code -> reopen notebook -> Settings ->
+Accelerator -> GPU T4 x2 -> Session -> Restart. Some carriers and most VoIP
+numbers reportedly fail Kaggle's SMS check.
+
+## T4 cannot run the bf16 Wan 2.2 checkpoint
+
+The notebook originally defaulted to `wan2.2_ti2v_5B` in bf16, which needs
+~24GB. Kaggle's free GPU is a T4: 16GB and **sm_75, which has no bfloat16
+support**. It would have failed on a GPU session too. The default is now
+`wan2.2_ti2v_5B_Q4_K_M`, a GGUF quantisation that offloads to system RAM and
+fits in ~8GB. On a 24GB+ card, pass `wan2.2_ti2v_5B` for better quality.
+
+Model choice guidance (2026):
+- Wan 2.2 TI2V-5B is the best fit for a free T4 - 720p, Apache-2.0,
+  text-to-video *and* image-to-video.
+- HunyuanVideo 1.5 (14GB fp8) is the quality leader but needs more VRAM
+  headroom and is slow on a T4.
+- LTX-2.3 is the only open model with native synced audio, but wants 16GB
+  at Q4 and a newer card for the best precision.
+
+## Realistic generation speed on a T4
+
+A 5-second 480p clip at 30 steps is roughly 2-6 minutes. A 4-scene
+20-second story is roughly 10-25 minutes. The first scene is slowest
+because the model loads then. `STEPS=6` plus a Lightning checkpoint is the
+main speed lever.

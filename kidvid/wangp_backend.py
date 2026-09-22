@@ -27,10 +27,13 @@ class WanGPBackend:
 
     def __init__(
         self,
-        model: str = "wan2.2_ti2v_5B",
+        model: str = "wan2.2_ti2v_5B_Q4_K_M",
         bridge: str = "tools/wangp_bridge.py",
         python: str | None = None,
     ) -> None:
+        """Defaults to the Q4_K_M quantised Wan 2.2 checkpoint, which is the
+        variant that fits Kaggle's 16GB T4. On a 24GB+ card, pass
+        ``model="wan2.2_ti2v_5B"`` for bf16 quality."""
         self.model = model
         self.bridge = Path(bridge)
         self.python = python or sys.executable
