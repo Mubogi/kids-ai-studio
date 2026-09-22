@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
-from .util import run, probe_duration
+from .util import run, probe_duration, PipelineError
 
 
 class MusicBackend(Protocol):
@@ -59,11 +59,19 @@ class MockMusicBackend:
 class ACEStepBackend:
     """ACE-Step: Apache-2.0 music model, fast (a few seconds on an A100).
 
-    Requires GPU + the ACE-Step package installed in the notebook.
+    Install from GitHub, not PyPI. The PyPI ``ace-step`` sdist declares only
+    ``packages=["acestep"]``, omitting the schedulers, models, music_dcae and
+    language_segmentation subpackages its own pipeline imports, so it cannot
+    import once installed. The repo also pins ``diffusers==0.32.2``, which
+    predates Wan support and would break text-to-video; current main uses
+    ``diffusers>=0.33.0`` and ``find_namespace_packages()``.
+
+    Needs a GPU. On a T4 (no bfloat16) it runs in float32.
     """
 
-    def __init__(self, steps: int = 60) -> None:
+    def __init__(self, steps: int = 60, checkpoint_dir: str | None = None) -> None:
         self.steps = steps
+        self.checkpoint_dir = checkpoint_dir
         self._pipe = None
 
     def _load(self):
@@ -72,7 +80,7 @@ class ACEStepBackend:
             from acestep.pipeline_ace_step import ACEStepPipeline
 
             self._pipe = ACEStepPipeline(
-                checkpoint_dir="checkpoints",
+                checkpoint_dir=self.checkpoint_dir,
                 dtype="bfloat16" if torch.cuda.is_bf16_supported() else "float32",
                 torch_compile=False,
             )
@@ -81,14 +89,33 @@ class ACEStepBackend:
     def generate(self, prompt: str, seconds: float, out_path: Path) -> Path:
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # ACE-Step always writes WAV, ignoring the extension on save_path, and
+        # the container is whatever `format` says. Ask for wav explicitly and
+        # transcode afterwards, otherwise an .m4a path holds raw WAV bytes and
+        # downstream muxing fails on a format it cannot parse.
+        raw = out_path.with_suffix(".ace.wav")
         pipe = self._load()
         pipe(
             prompt=prompt,
             lyrics="",
             audio_duration=float(min(seconds, 240)),
             infer_step=self.steps,
-            save_path=str(out_path),
+            format="wav",
+            save_path=str(raw),
         )
+        if not raw.exists():
+            raise PipelineError(f"ACE-Step reported success but {raw} is missing")
+
+        if out_path.suffix.lower() in (".wav", ""):
+            raw.replace(out_path)
+            return out_path
+
+        run(["ffmpeg", "-y", "-i", str(raw), "-c:a", "aac", "-b:a", "192k",
+             str(out_path)])
+        raw.unlink(missing_ok=True)
+        if not out_path.exists():
+            raise PipelineError(f"failed to transcode {raw} to {out_path}")
         return out_path
 
 
@@ -124,7 +151,14 @@ class MusicGenBackend:
 
 
 def default_backend():
-    """Prefer ACE-Step (fast, Apache-2.0), fall back to MusicGen, then mock."""
+    """Prefer ACE-Step (fast, Apache-2.0), fall back to MusicGen, then mock.
+
+    ``import acestep`` succeeding is not sufficient: the PyPI ``ace-step``
+    distribution installs a package that cannot import its own submodules, so
+    constructing the backend is where that actually shows up. Callers that
+    want a real song should treat a failure here as a real failure rather
+    than silently accepting the mock melody.
+    """
     try:
         import acestep  # noqa: F401
 

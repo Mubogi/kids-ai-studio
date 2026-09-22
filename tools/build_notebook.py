@@ -341,18 +341,36 @@ melody so you get a finished video to look at.
 """
     ),
     code(
-        """!pip install -q acestep 2>/dev/null || echo "ACE-Step unavailable, will fall back"
+        r"""# ACE-Step for music. Install from GitHub, not PyPI: the PyPI sdist ships
+# only the top-level `acestep` package and omits the subpackages its own
+# pipeline imports, so `import acestep` fails after a successful install.
+#
+# Skip --no-deps: it needs the subpackages plus its own deps. Its
+# diffusers>=0.33.0 floor is compatible with the Wan requirement above; if
+# pip ever tries to pull an older diffusers here, stop - that would break
+# text-to-video. The `2>&1 | tail` keeps a failure visible instead of silent.
+!pip install -q "git+https://github.com/ace-step/ACE-Step.git" 2>&1 | tail -3 || echo "ACE-Step unavailable, will fall back to the mock melody"
+print("music deps done")
 """
     ),
     code(
         """from kidvid.music import default_backend, MockMusicBackend
 
 music_path = Path(cfg.out_dir) / "music.m4a"
+REAL_MUSIC = True  # set False if you only want a placeholder melody
+
 try:
     mbackend = default_backend()
     print("music backend:", type(mbackend).__name__)
+    if isinstance(mbackend, MockMusicBackend):
+        # Falling back is easy to miss and makes a real run look successful
+        # while shipping a placeholder tune, so say so loudly.
+        print("WARNING: no real music backend available - this is a placeholder.")
+        print("         ACE-Step did not import; see the install cell above.")
     mbackend.generate(board.music_prompt, cfg.music_seconds, music_path)
 except Exception as exc:
+    if REAL_MUSIC:
+        raise
     print(f"real music backend failed ({exc}); using the mock melody")
     MockMusicBackend().generate(board.music_prompt, cfg.music_seconds, music_path)
 
