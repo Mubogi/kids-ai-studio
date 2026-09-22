@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+output/
+runs/
+examples/*.png
+*.mp4
+*.wav
+*.mp3

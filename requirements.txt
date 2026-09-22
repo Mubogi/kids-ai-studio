@@ -1,0 +1,7 @@
+# Core orchestration only. Video/music model stacks (Wan2GP, diffusion
+# backends) are installed inside the Kaggle notebook, not here, because
+# they pin conflicting torch/CUDA versions.
+#
+# Everything below has a pure-Python fallback path in kidvid/, so the
+# pipeline runs end-to-end without these installed.
+Pillow>=10.0.0
