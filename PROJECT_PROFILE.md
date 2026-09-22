@@ -7,7 +7,7 @@
 - **Contact:** jordandesignhub@gmail.com · WhatsApp +256 754 687 597
 - **Category:** EdTech / Creator Tools / Media & AI Solutions
 - **Status:** prototype
-- **Links:** <repo URL · Kaggle notebook>
+- **Links:** https://github.com/Mubogi/kids-ai-studio · Kaggle notebook (pending publish)
 
 ## 2. Problem & Target Market
 - **Problem:** AI video tools cost $20–50/month and are priced per clip, so Ugandan schools, parents, churches and small content creators cannot afford to produce children's story animations or nursery-rhyme videos at volume.
