@@ -127,9 +127,9 @@ placeholder and paste the files in manually. Nothing here needs a private repo.
         """# Points at the real project. If you forked it, change the URL; if you
 # uploaded kidvid/ by hand instead, set REPO_URL = "" to skip the clone.
 REPO_URL = "https://github.com/Mubogi/kids-ai-studio.git"
-# The default branch on this repo is `master`, which is behind. Pin the
-# branch the work actually lives on so the notebook never clones stale code.
-REPO_BRANCH = "mubogi-branding"
+# Empty means "whatever the repo's default branch is", which is where the
+# working code lives. Only pin this if you need a specific branch.
+REPO_BRANCH = ""
 
 import shutil
 
@@ -137,6 +137,7 @@ repo_dir = WORK / "kidvid"
 if repo_dir.exists():
     shutil.rmtree(repo_dir)
 
+_branch = f"--branch {REPO_BRANCH} " if REPO_BRANCH else ""
 if not REPO_URL:
     print(
         "REPO_URL is empty.\\n"
@@ -144,7 +145,7 @@ if not REPO_URL:
         "(b) upload the kidvid/ folder via the Kaggle file browser."
     )
 else:
-    !git clone --depth 1 --branch {REPO_BRANCH} {REPO_URL} {repo_dir}
+    !git clone --depth 1 {_branch}{REPO_URL} {repo_dir}
     print("cloned into", repo_dir)
 
 # ffmpeg does the joining, music muxing and captions.

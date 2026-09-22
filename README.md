@@ -64,25 +64,55 @@ library, push to GitHub, and the next Kaggle run picks it up.
 
 | Model | License | Role | Fits a T4? |
 | --- | --- | --- | --- |
-| [Wan 2.2 TI2V-5B](https://github.com/Wan-Video/Wan2.2) | Apache-2.0 | Text *and* image to video | Yes |
-| [Wan 2.2 14B](https://github.com/Wan-Video/Wan2.2) | Apache-2.0 | Higher quality | Quantized, slowly |
+| [Wan 2.2 TI2V-5B](https://github.com/Wan-Video/Wan2.2) | Apache-2.0 | Text *and* image to video | Yes, 2x T4 |
 | [LTX-Video](https://github.com/Lightricks/LTX-Video) | Apache-2.0 | Fastest, lowest VRAM (8 GB) | Yes, easily |
 | [HunyuanVideo](https://github.com/Tencent-Hunyuan/HunyuanVideo) | **Tencent custom** | High quality | No |
 | [ACE-Step](https://github.com/ace-step/ACE-Step) | Apache-2.0 | Music / songs | Yes |
-| [MusicGen](https://github.com/facebookresearch/audiocraft) | MIT | Music fallback | Yes |
-| [WanGP](https://github.com/deepbeepmeep/Wan2GP) | WanGP Community License | Driver / UI for the above | Yes |
+| [MusicGen](https://github.com/facebookresearch/musicgen) | MIT | Music fallback | Yes |
 
-**Wan 2.2 + WanGP is the recommended path.** Apache-2.0 weights, low-VRAM
-engineering already done for you, and one prompt box that accepts both text and
-images.
+**Wan 2.2 TI2V-5B through `diffusers` is the path that works here.** Apache-2.0
+weights, one prompt box that accepts both text and images, and real
+frame-by-frame motion rather than a camera move over a still.
+
+### Running it on 2x T4, and what actually breaks
+
+This was arrived at by testing, and the failures are worth keeping:
+
+- **Single-card model offload does not fit.** ~19 GB of weights against ~13 GB
+  usable per T4. It OOMs, and it still OOMs at 512x288, so shrinking frames is
+  not the fix.
+- **Sequential CPU offload does not fit either.** It streams weights through
+  host RAM and gets OOM-killed by the kernel at about 65% loaded - it wants
+  ~20 GB of host RAM and Kaggle gives ~13 GB.
+- **`device_map="balanced"` across both T4s is the one that works**, but it
+  packs each card to capacity and then dies mid-denoise with
+  `CUBLAS_STATUS_ALLOC_FAILED`, because cuBLAS has no room for its GEMM
+  workspace. Reserving headroom via `max_memory` fixes it - see
+  `WAN_MAX_MEM_HEADROOM_GB`.
+
+A diagnostic run of five configurations on one GPU session settled this:
+
+```
+PASS  balanced + 2GB headroom
+PASS  balanced + 4GB headroom
+PASS  balanced, no expandable_segments
+FAIL  model offload
+FAIL  model offload, 512x288
+```
+
+### It is slow, and the free quota is small
+
+Measured on 2x T4: roughly **4-6 minutes per second of video** at 6 steps, so
+about **20-30 seconds of GPU per frame** produced. A 20-second story is
+close to an hour, and a free Kaggle account gets roughly 9-12 GPU hours per
+week. That is the honest cost of real motion; plan scenes accordingly, and
+lower `STEPS` or shorten scenes before you queue a long run.
 
 ### Licensing
 
 Wan 2.2, LTX-Video, ACE-Step and MusicGen are permissive — you own and may sell
 what you generate. **HunyuanVideo is not OSI open source**; it carries Tencent's
-own license with restrictions, so read it before commercial use. WanGP lets you
-sell its output (credit it if you sell directly) but forbids reselling WanGP
-itself as a hosted or paid service.
+own license with restrictions, so read it before commercial use.
 
 > Ignore "Wan 2.7 open weights" download pages. Official Wan open weights stop
 > at **2.2**. Treat any "2.7 weights" download as a likely malware vector and
