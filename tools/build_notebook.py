@@ -338,6 +338,10 @@ print("\\nclips:", [c.name for c in clips])
 ACE-Step (Apache-2.0) is fast and song-like. MusicGen is a reliable fallback.
 If neither installed cleanly, the mock backend still produces a simple
 melody so you get a finished video to look at.
+
+Keep the requested song at least 5 seconds. ACE-Step is trained on 30-240s
+music and returns near-silence below ~5s, so shorter requests are clamped up
+and the mux trims the result to the video length.
 """
     ),
     code(

@@ -12,6 +12,11 @@ class MusicBackend(Protocol):
     def generate(self, prompt: str, seconds: float, out_path: Path) -> Path: ...
 
 
+# ACE-Step returns near-silence below this. Measured on a T4: 2s -> rms 4.3e-5,
+# 5s -> 4.8e-2, 10s+ -> 1.5e-1 and up. The model is trained on 30-240s songs.
+MIN_ACE_SECONDS = 5.0
+
+
 class MockMusicBackend:
     """A gentle generated arpeggio - no model, no GPU.
 
@@ -66,7 +71,7 @@ class ACEStepBackend:
     predates Wan support and would break text-to-video; current main uses
     ``diffusers>=0.33.0`` and ``find_namespace_packages()``.
 
-    Needs a GPU. On a T4 (no bfloat16) it runs in float32.
+    Needs a GPU. On a T4 (no bfloat16) it runs in fp16 via ACE_PIPELINE_DTYPE.
     """
 
     def __init__(self, steps: int = 60, checkpoint_dir: str | None = None) -> None:
@@ -76,12 +81,25 @@ class ACEStepBackend:
 
     def _load(self):
         if self._pipe is None:
+            import os
+
             import torch
             from acestep.pipeline_ace_step import ACEStepPipeline
 
+            if torch.cuda.is_bf16_supported():
+                dtype = "bfloat16"
+            else:
+                # The dtype argument only distinguishes bfloat16 from float32,
+                # and float32 for this 3.5B model is ~14GB - more than a T4's
+                # 14.5GiB, so it OOMs while loading. ACE_PIPELINE_DTYPE is
+                # ACE-Step's documented override and gets fp16 (~8GB, measured
+                # on a T4), which fits and still produces clean audio.
+                os.environ.setdefault("ACE_PIPELINE_DTYPE", "float16")
+                dtype = "float32"  # the env var above takes precedence
+
             self._pipe = ACEStepPipeline(
                 checkpoint_dir=self.checkpoint_dir,
-                dtype="bfloat16" if torch.cuda.is_bf16_supported() else "float32",
+                dtype=dtype,
                 torch_compile=False,
             )
         return self._pipe
@@ -89,6 +107,17 @@ class ACEStepBackend:
     def generate(self, prompt: str, seconds: float, out_path: Path) -> Path:
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Below ~5s this model returns near-silence. Measured on a T4 with a
+        # fixed seed and prompt: 2s gave rms 4.3e-5 (inaudible), 5s gave
+        # 4.8e-2, and 10s and up gave 1.5e-1 to 2.0e-1. It is trained on
+        # 30-240s songs, so a couple of seconds is simply out of distribution.
+        # Clamp up rather than ship a silent track; mux trims to the video.
+        if seconds < MIN_ACE_SECONDS:
+            print(f"ACE-Step: {seconds:.1f}s is below the {MIN_ACE_SECONDS:.0f}s "
+                  f"minimum and would come out silent; generating "
+                  f"{MIN_ACE_SECONDS:.0f}s instead and trimming to the video.")
+            seconds = MIN_ACE_SECONDS
 
         # ACE-Step always writes WAV, ignoring the extension on save_path, and
         # the container is whatever `format` says. Ask for wav explicitly and
